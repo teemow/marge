@@ -26,11 +26,22 @@ make install
 
 ## Setup
 
-Marge requires a GitHub personal access token with repo scope. Export it as an environment variable:
+Marge requires a GitHub personal access token. Export it as an environment variable:
 
 ```bash
 export GITHUB_TOKEN="ghp_..."
 ```
+
+**Classic token:** needs the `repo` scope.
+
+**Fine-grained token:** select the repositories you want marge to manage, then grant these permissions:
+
+| Permission | Access | Why |
+|------------|--------|-----|
+| Pull requests | Read & write | Approve and merge PRs |
+| Checks | Read | Wait for CI status |
+| Commit statuses | Read | Read combined commit status |
+| Metadata | Read | Required by default |
 
 ## Usage
 
@@ -98,7 +109,7 @@ marge self-update     # Update to the latest release
    - Checks combined commit status and check runs; polls for up to 5 minutes if pending.
    - Approves the PR if not already approved.
    - If auto-merge is enabled, lets the merge queue handle it.
-   - Otherwise determines the merge method (squash preferred) and merges directly.
+   - Otherwise merges via squash.
 4. Displays a live-updating table with PR status throughout.
 
 ## Development
@@ -112,4 +123,4 @@ make help           # Show all available targets
 
 ## License
 
-See [LICENSE](LICENSE) for details.
+MIT -- see [LICENSE](LICENSE) for details.
