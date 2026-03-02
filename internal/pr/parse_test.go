@@ -189,3 +189,95 @@ func TestExtractDependencyName(t *testing.T) {
 		})
 	}
 }
+
+func TestIsDependencyUpdateTitle(t *testing.T) {
+	tests := []struct {
+		name  string
+		title string
+		want  bool
+	}{
+		// Conventional commit with deps scope (self-hosted Renovate)
+		{
+			name:  "chore(deps) update",
+			title: "chore(deps): update eslint monorepo to v10 (major)",
+			want:  true,
+		},
+		{
+			name:  "fix(deps) update",
+			title: "fix(deps): update dependency foo to v2",
+			want:  true,
+		},
+		{
+			name:  "chore(deps) pin",
+			title: "chore(deps): pin dependencies",
+			want:  true,
+		},
+		{
+			name:  "chore(deps) terraform",
+			title: "chore(deps): update terraform aws to v6",
+			want:  true,
+		},
+		{
+			name:  "chore(deps) terraform ignition",
+			title: "chore(deps): update terraform ignition to v2",
+			want:  true,
+		},
+		// Standard Renovate titles (app-authored)
+		{
+			name:  "update dependency",
+			title: "Update dependency github.com/foo/bar to v1.2.3",
+			want:  true,
+		},
+		{
+			name:  "update module",
+			title: "Update module github.com/aws/aws-sdk-go to v1.44.0",
+			want:  true,
+		},
+		{
+			name:  "lock file maintenance",
+			title: "Lock file maintenance",
+			want:  true,
+		},
+		// Standard Dependabot titles
+		{
+			name:  "bump from to",
+			title: "Bump lodash from 4.17.20 to 4.17.21",
+			want:  true,
+		},
+		{
+			name:  "bump group",
+			title: "Bump the go-deps group across 3 directories with 5 updates",
+			want:  true,
+		},
+		// Non-dependency PRs
+		{
+			name:  "regular PR",
+			title: "Fix a bug in the widget",
+			want:  false,
+		},
+		{
+			name:  "feature PR",
+			title: "Add new authentication flow",
+			want:  false,
+		},
+		{
+			name:  "chore without deps scope",
+			title: "chore: clean up CI config",
+			want:  false,
+		},
+		{
+			name:  "empty title",
+			title: "",
+			want:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := IsDependencyUpdateTitle(tt.title)
+			if got != tt.want {
+				t.Errorf("IsDependencyUpdateTitle(%q) = %v, want %v", tt.title, got, tt.want)
+			}
+		})
+	}
+}

@@ -245,6 +245,56 @@ func searchPRs(ctx context.Context, client *github.Client, query string) ([]pr.P
 		}
 	}
 
+	// Also search for self-authored dependency update PRs in user's own repos.
+	// This catches PRs created by self-hosted Renovate running under the user's PAT.
+	selfQuery := fmt.Sprintf("%s is:pr is:open archived:false user:%s author:%s", query, login, login)
+	selfQuery = strings.TrimSpace(selfQuery)
+
+	selfOpts := &github.SearchOptions{
+		Sort:        "updated",
+		ListOptions: github.ListOptions{PerPage: 100},
+	}
+
+	for {
+		result, resp, err := client.Search.Issues(ctx, selfQuery, selfOpts)
+		if err != nil {
+			return nil, fmt.Errorf("search failed: %w", err)
+		}
+
+		for _, issue := range result.Issues {
+			url := issue.GetHTMLURL()
+			if seen[url] {
+				continue
+			}
+
+			title := issue.GetTitle()
+			if !pr.IsDependencyUpdateTitle(title) {
+				continue
+			}
+
+			seen[url] = true
+
+			owner, repo, err := extractOwnerRepo(url)
+			if err != nil {
+				continue
+			}
+
+			allPRs = append(allPRs, pr.PRInfo{
+				Owner:  owner,
+				Repo:   repo,
+				Number: issue.GetNumber(),
+				Title:  title,
+				URL:    url,
+				Author: issue.GetUser().GetLogin(),
+			})
+		}
+
+		if resp.NextPage == 0 {
+			break
+		}
+		selfOpts.Page = resp.NextPage
+	}
+
 	return allPRs, nil
 }
 
