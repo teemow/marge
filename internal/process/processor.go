@@ -135,7 +135,7 @@ func (p *Processor) getCombinedCheckState(ctx context.Context, info pr.PRInfo) (
 	if combinedState == "failure" || combinedState == "error" {
 		return combinedState, nil
 	}
-	if combinedState == "pending" {
+	if combinedState == "pending" && len(combined.Statuses) > 0 {
 		return "pending", nil
 	}
 
