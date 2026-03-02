@@ -39,6 +39,23 @@ var dependencyPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)bump ([\w\-./]+(?:/[\w\-./]+)*) to `),
 }
 
+// IsDependencyUpdateTitle returns true if the PR title looks like an automated
+// dependency update (Renovate or Dependabot), regardless of who authored it.
+func IsDependencyUpdateTitle(title string) bool {
+	title = strings.TrimSpace(title)
+	lower := strings.ToLower(title)
+
+	// Conventional commit with deps scope: "chore(deps):", "fix(deps):", etc.
+	if idx := strings.Index(lower, ":"); idx != -1 {
+		if strings.Contains(lower[:idx], "deps") {
+			return true
+		}
+	}
+
+	// Known dependency update title patterns (Renovate/Dependabot)
+	return ExtractDependencyName(title) != ""
+}
+
 func ExtractDependencyName(title string) string {
 	title = strings.TrimSpace(title)
 	for _, pat := range dependencyPatterns {
