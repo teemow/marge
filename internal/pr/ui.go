@@ -12,33 +12,49 @@ const (
 	colStatus = 30
 )
 
+type InfoFunc func(PRInfo) string
+
+func RepoInfoFunc(p PRInfo) string {
+	return fmt.Sprintf("%s/%s", p.Owner, p.Repo)
+}
+
+func DependencyInfoFunc(p PRInfo) string {
+	dep := ExtractDependencyName(p.Title)
+	if dep == "" {
+		return p.Title
+	}
+	return dep
+}
+
 func MakeHyperlink(text, url string) string {
 	return fmt.Sprintf("\033]8;;%s\033\\%s\033]8;;\033\\", url, text)
 }
 
-func PrintTableHeader(w *os.File) {
-	header := fmt.Sprintf("%-*s %-*s %-*s", colPR, "PR", colInfo, "Repository", colStatus, "Status")
+func PrintTableHeader(w *os.File, infoLabel string) {
+	header := fmt.Sprintf("%-*s %-*s %-*s", colPR, "PR", colInfo, infoLabel, colStatus, "Status")
 	divider := strings.Repeat("-", colPR+colInfo+colStatus+2)
 	_, _ = fmt.Fprintln(w, header)
 	_, _ = fmt.Fprintln(w, divider)
 }
 
-func UpdateTable(w *os.File, entries []StatusEntry) {
+func PrintRow(w *os.File, e StatusEntry, infoFn InfoFunc) {
+	prLabel := fmt.Sprintf("%-*s", colPR, fmt.Sprintf("#%d", e.PR.Number))
+	prLink := MakeHyperlink(prLabel, e.PR.URL)
+	info := infoFn(e.PR)
+	statusStr := colorizeStatus(e.State, e.Detail)
+	_, _ = fmt.Fprintf(w, "\033[2K%s %-*s %s\n", prLink, colInfo, truncate(info, colInfo), statusStr)
+}
+
+func UpdateTable(w *os.File, entries []StatusEntry, infoLabel string, infoFn InfoFunc) {
 	lineCount := len(entries) + 2 // +2 for header and divider
 
 	// Move cursor up to overwrite the table
 	_, _ = fmt.Fprintf(w, "\033[%dA", lineCount)
 
-	PrintTableHeader(w)
+	PrintTableHeader(w, infoLabel)
 
 	for _, e := range entries {
-		prLabel := fmt.Sprintf("#%d", e.PR.Number)
-		prLink := MakeHyperlink(prLabel, e.PR.URL)
-		repoName := fmt.Sprintf("%s/%s", e.PR.Owner, e.PR.Repo)
-
-		statusStr := colorizeStatus(e.State, e.Detail)
-
-		_, _ = fmt.Fprintf(w, "\033[2K%-*s %-*s %s\n", colPR, prLink, colInfo, truncate(repoName, colInfo), statusStr)
+		PrintRow(w, e, infoFn)
 	}
 }
 
