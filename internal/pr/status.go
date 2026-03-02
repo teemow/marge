@@ -1,0 +1,119 @@
+package pr
+
+import (
+	"fmt"
+	"sync"
+)
+
+type StatusState int
+
+const (
+	StatusPending StatusState = iota
+	StatusChecking
+	StatusApproving
+	StatusMerging
+	StatusMerged
+	StatusAlreadyMerged
+	StatusAutoMerge
+	StatusFailed
+	StatusSkipped
+	StatusConflict
+)
+
+func (s StatusState) String() string {
+	switch s {
+	case StatusPending:
+		return "Pending"
+	case StatusChecking:
+		return "Checking CI"
+	case StatusApproving:
+		return "Approving"
+	case StatusMerging:
+		return "Merging"
+	case StatusMerged:
+		return "Merged"
+	case StatusAlreadyMerged:
+		return "Already merged"
+	case StatusAutoMerge:
+		return "Auto-merge"
+	case StatusFailed:
+		return "Failed"
+	case StatusSkipped:
+		return "Skipped"
+	case StatusConflict:
+		return "Conflict"
+	default:
+		return "Unknown"
+	}
+}
+
+type PRStatus struct {
+	mu      sync.Mutex
+	entries []StatusEntry
+}
+
+type StatusEntry struct {
+	PR     PRInfo
+	State  StatusState
+	Detail string
+}
+
+func NewPRStatus() *PRStatus {
+	return &PRStatus{}
+}
+
+func (s *PRStatus) Add(pr PRInfo) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	idx := len(s.entries)
+	s.entries = append(s.entries, StatusEntry{
+		PR:    pr,
+		State: StatusPending,
+	})
+	return idx
+}
+
+func (s *PRStatus) Update(idx int, state StatusState, detail string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if idx < len(s.entries) {
+		s.entries[idx].State = state
+		s.entries[idx].Detail = detail
+	}
+}
+
+func (s *PRStatus) Snapshot() []StatusEntry {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	snap := make([]StatusEntry, len(s.entries))
+	copy(snap, s.entries)
+	return snap
+}
+
+func (s *PRStatus) Summary() (merged, failed, skipped int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, e := range s.entries {
+		switch e.State {
+		case StatusMerged, StatusAlreadyMerged, StatusAutoMerge:
+			merged++
+		case StatusFailed, StatusConflict:
+			failed++
+		case StatusSkipped:
+			skipped++
+		}
+	}
+	return
+}
+
+func (s *PRStatus) Len() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.entries)
+}
+
+func (s *PRStatus) FormatSummary() string {
+	merged, failed, skipped := s.Summary()
+	total := s.Len()
+	return fmt.Sprintf("%d PRs processed: %d merged, %d failed, %d skipped", total, merged, failed, skipped)
+}
