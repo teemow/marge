@@ -19,15 +19,15 @@ func MakeHyperlink(text, url string) string {
 func PrintTableHeader(w *os.File) {
 	header := fmt.Sprintf("%-*s %-*s %-*s", colPR, "PR", colInfo, "Repository", colStatus, "Status")
 	divider := strings.Repeat("-", colPR+colInfo+colStatus+2)
-	fmt.Fprintln(w, header)
-	fmt.Fprintln(w, divider)
+	_, _ = fmt.Fprintln(w, header)
+	_, _ = fmt.Fprintln(w, divider)
 }
 
 func UpdateTable(w *os.File, entries []StatusEntry) {
 	lineCount := len(entries) + 2 // +2 for header and divider
 
 	// Move cursor up to overwrite the table
-	fmt.Fprintf(w, "\033[%dA", lineCount)
+	_, _ = fmt.Fprintf(w, "\033[%dA", lineCount)
 
 	PrintTableHeader(w)
 
@@ -38,8 +38,7 @@ func UpdateTable(w *os.File, entries []StatusEntry) {
 
 		statusStr := colorizeStatus(e.State, e.Detail)
 
-		// Clear the line and print
-		fmt.Fprintf(w, "\033[2K%-*s %-*s %s\n", colPR, prLink, colInfo, truncate(repoName, colInfo), statusStr)
+		_, _ = fmt.Fprintf(w, "\033[2K%-*s %-*s %s\n", colPR, prLink, colInfo, truncate(repoName, colInfo), statusStr)
 	}
 }
 

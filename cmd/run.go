@@ -120,7 +120,7 @@ func runOnce(ctx context.Context, client *github.Client, query string) error {
 		prLabel := fmt.Sprintf("#%d", e.PR.Number)
 		prLink := pr.MakeHyperlink(prLabel, e.PR.URL)
 		repoName := fmt.Sprintf("%s/%s", e.PR.Owner, e.PR.Repo)
-		fmt.Fprintf(os.Stdout, "%-10s %-50s %s\n", prLink, repoName, e.State.String())
+		_, _ = fmt.Fprintf(os.Stdout, "%-10s %-50s %s\n", prLink, repoName, e.State.String())
 	}
 
 	// Start table refresh ticker
