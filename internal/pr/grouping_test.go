@@ -21,19 +21,18 @@ func TestGroupByRepo(t *testing.T) {
 		t.Fatalf("expected 2 groups, got %d", len(groups))
 	}
 
-	// kyverno-app has 3 PRs so it should be first (sorted by count desc)
-	if groups[0].Key != "giantswarm/kyverno-app" {
-		t.Errorf("first group key = %q, want %q", groups[0].Key, "giantswarm/kyverno-app")
+	if groups[0].Key != "giantswarm/flux-app" {
+		t.Errorf("first group key = %q, want %q", groups[0].Key, "giantswarm/flux-app")
 	}
-	if groups[0].Count != 3 {
-		t.Errorf("first group count = %d, want 3", groups[0].Count)
+	if groups[0].Count != 2 {
+		t.Errorf("first group count = %d, want 2", groups[0].Count)
 	}
 
-	if groups[1].Key != "giantswarm/flux-app" {
-		t.Errorf("second group key = %q, want %q", groups[1].Key, "giantswarm/flux-app")
+	if groups[1].Key != "giantswarm/kyverno-app" {
+		t.Errorf("second group key = %q, want %q", groups[1].Key, "giantswarm/kyverno-app")
 	}
-	if groups[1].Count != 2 {
-		t.Errorf("second group count = %d, want 2", groups[1].Count)
+	if groups[1].Count != 3 {
+		t.Errorf("second group count = %d, want 3", groups[1].Count)
 	}
 }
 

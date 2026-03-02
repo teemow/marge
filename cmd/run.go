@@ -23,6 +23,7 @@ var (
 	watch    bool
 	grouping string
 	author   string
+	noTUI    bool
 )
 
 func init() {
@@ -30,6 +31,7 @@ func init() {
 	runCmd.Flags().BoolVarP(&watch, "watch", "w", false, "Keep polling for new PRs (every 60s)")
 	runCmd.Flags().StringVar(&grouping, "grouping", "repo", "Group by \"repo\" or \"dependency\"")
 	runCmd.Flags().StringVar(&author, "author", "all", "Filter by PR author: \"renovate\", \"dependabot\", or \"all\"")
+	runCmd.Flags().BoolVar(&noTUI, "no-tui", false, "Disable live table, print plain-text results instead")
 
 	rootCmd.AddCommand(runCmd)
 
@@ -82,7 +84,13 @@ optionally group them interactively, then approve and merge them.`,
 }
 
 func runOnce(ctx context.Context, client *github.Client, query string) error {
-	prs, err := searchPRs(ctx, client, query)
+	me, _, err := client.Users.Get(ctx, "")
+	if err != nil {
+		return fmt.Errorf("getting authenticated user: %w", err)
+	}
+	login := me.GetLogin()
+
+	prs, err := searchPRs(ctx, client, query, login)
 	if err != nil {
 		return fmt.Errorf("searching PRs: %w", err)
 	}
@@ -122,31 +130,36 @@ func runOnce(ctx context.Context, client *github.Client, query string) error {
 		indices[i] = status.Add(p)
 	}
 
-	pr.PrintTableHeader(os.Stdout, infoLabel)
-	for _, e := range status.Snapshot() {
-		pr.PrintRow(os.Stdout, e, infoFn)
+	if !noTUI {
+		pr.PrintTableHeader(os.Stdout, infoLabel)
+		for _, e := range status.Snapshot() {
+			pr.PrintRow(os.Stdout, e, infoFn)
+		}
 	}
 
-	// Start table refresh ticker
 	stopRefresh := make(chan struct{})
 	refreshStopped := make(chan struct{})
-	go func() {
-		defer close(refreshStopped)
-		ticker := time.NewTicker(500 * time.Millisecond)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-stopRefresh:
-				return
-			case <-ticker.C:
-				pr.UpdateTable(os.Stdout, status.Snapshot(), infoLabel, infoFn)
+	if !noTUI {
+		go func() {
+			defer close(refreshStopped)
+			ticker := time.NewTicker(500 * time.Millisecond)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-stopRefresh:
+					return
+				case <-ticker.C:
+					pr.UpdateTable(os.Stdout, status.Snapshot(), infoLabel, infoFn)
+				}
 			}
-		}
-	}()
+		}()
+	} else {
+		close(refreshStopped)
+	}
 
-	proc := process.NewProcessor(client, dryRun)
+	proc := process.NewProcessor(client, dryRun, login)
 
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 5)
@@ -166,14 +179,18 @@ func runOnce(ctx context.Context, client *github.Client, query string) error {
 	close(stopRefresh)
 	<-refreshStopped
 
-	pr.UpdateTable(os.Stdout, status.Snapshot(), infoLabel, infoFn)
+	if noTUI {
+		pr.PrintPlainResults(os.Stdout, status)
+	} else {
+		pr.UpdateTable(os.Stdout, status.Snapshot(), infoLabel, infoFn)
+	}
 
 	fmt.Fprintf(os.Stderr, "\n%s\n", status.FormatSummary())
 
 	return nil
 }
 
-func searchPRs(ctx context.Context, client *github.Client, query string) ([]pr.PRInfo, error) {
+func searchPRs(ctx context.Context, client *github.Client, query string, login string) ([]pr.PRInfo, error) {
 	var authorFilters []string
 	switch author {
 	case "renovate":
@@ -183,12 +200,6 @@ func searchPRs(ctx context.Context, client *github.Client, query string) ([]pr.P
 	default:
 		authorFilters = []string{"author:app/renovate", "author:app/dependabot"}
 	}
-
-	me, _, err := client.Users.Get(ctx, "")
-	if err != nil {
-		return nil, fmt.Errorf("getting authenticated user: %w", err)
-	}
-	login := me.GetLogin()
 
 	// Two scope filters, deduplicated:
 	// 1. review-requested:@me  -- PRs where you're explicitly requested (org repos)
