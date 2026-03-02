@@ -2,6 +2,7 @@ package process
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -186,17 +187,23 @@ func (p *Processor) merge(ctx context.Context, info pr.PRInfo, pullReq *github.P
 	})
 	if err != nil {
 		errMsg := err.Error()
-		if strings.Contains(errMsg, "405") || strings.Contains(errMsg, "not allowed") {
-			status.Update(idx, pr.StatusFailed, "merge not allowed")
-		} else if strings.Contains(errMsg, "409") || strings.Contains(errMsg, "conflict") {
+		if strings.Contains(errMsg, "409") || strings.Contains(errMsg, "conflict") {
 			status.Update(idx, pr.StatusConflict, "merge conflict")
 		} else {
-			status.Update(idx, pr.StatusFailed, fmt.Sprintf("merge error: %v", err))
+			status.Update(idx, pr.StatusFailed, mergeFailureDetail(err))
 		}
 		return
 	}
 
 	status.Update(idx, pr.StatusMerged, method)
+}
+
+func mergeFailureDetail(err error) string {
+	var ghErr *github.ErrorResponse
+	if errors.As(err, &ghErr) && ghErr.Message != "" {
+		return ghErr.Message
+	}
+	return fmt.Sprintf("merge error: %v", err)
 }
 
 func determineMergeMethod(pullReq *github.PullRequest) string {

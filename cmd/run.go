@@ -92,13 +92,21 @@ func runOnce(ctx context.Context, client *github.Client, query string) error {
 		return nil
 	}
 
+	infoLabel := "Repository"
+	infoFn := pr.InfoFunc(pr.RepoInfoFunc)
+
 	// Interactive mode: if no query provided, let user pick a group
 	if query == "" {
-		selected, err := interactiveSelect(prs)
+		selected, specificGroup, err := interactiveSelect(prs)
 		if err != nil {
 			return err
 		}
 		prs = selected
+
+		if specificGroup && grouping == "repo" {
+			infoLabel = "Dependency"
+			infoFn = pr.DependencyInfoFunc
+		}
 	}
 
 	if len(prs) == 0 {
@@ -114,13 +122,9 @@ func runOnce(ctx context.Context, client *github.Client, query string) error {
 		indices[i] = status.Add(p)
 	}
 
-	pr.PrintTableHeader(os.Stdout)
-	// Print initial rows
+	pr.PrintTableHeader(os.Stdout, infoLabel)
 	for _, e := range status.Snapshot() {
-		prLabel := fmt.Sprintf("#%d", e.PR.Number)
-		prLink := pr.MakeHyperlink(prLabel, e.PR.URL)
-		repoName := fmt.Sprintf("%s/%s", e.PR.Owner, e.PR.Repo)
-		_, _ = fmt.Fprintf(os.Stdout, "%-10s %-50s %s\n", prLink, repoName, e.State.String())
+		pr.PrintRow(os.Stdout, e, infoFn)
 	}
 
 	// Start table refresh ticker
@@ -137,7 +141,7 @@ func runOnce(ctx context.Context, client *github.Client, query string) error {
 			case <-stopRefresh:
 				return
 			case <-ticker.C:
-				pr.UpdateTable(os.Stdout, status.Snapshot())
+				pr.UpdateTable(os.Stdout, status.Snapshot(), infoLabel, infoFn)
 			}
 		}
 	}()
@@ -162,7 +166,7 @@ func runOnce(ctx context.Context, client *github.Client, query string) error {
 	close(stopRefresh)
 	<-refreshStopped
 
-	pr.UpdateTable(os.Stdout, status.Snapshot())
+	pr.UpdateTable(os.Stdout, status.Snapshot(), infoLabel, infoFn)
 
 	fmt.Fprintf(os.Stderr, "\n%s\n", status.FormatSummary())
 
@@ -180,8 +184,6 @@ func searchPRs(ctx context.Context, client *github.Client, query string) ([]pr.P
 		authorFilters = []string{"author:app/renovate", "author:app/dependabot"}
 	}
 
-	// Get authenticated user's login so we can also search their own repos
-	// (bots in personal repos don't add the owner as a reviewer).
 	me, _, err := client.Users.Get(ctx, "")
 	if err != nil {
 		return nil, fmt.Errorf("getting authenticated user: %w", err)
@@ -307,7 +309,7 @@ func extractOwnerRepo(htmlURL string) (string, string, error) {
 	return parts[0], parts[1], nil
 }
 
-func interactiveSelect(prs []pr.PRInfo) ([]pr.PRInfo, error) {
+func interactiveSelect(prs []pr.PRInfo) ([]pr.PRInfo, bool, error) {
 	var groups []pr.PRGroup
 	switch grouping {
 	case "dependency":
@@ -331,12 +333,12 @@ func interactiveSelect(prs []pr.PRInfo) ([]pr.PRInfo, error) {
 
 	idx, _, err := prompt.Run()
 	if err != nil {
-		return nil, fmt.Errorf("selection cancelled: %w", err)
+		return nil, false, fmt.Errorf("selection cancelled: %w", err)
 	}
 
 	if idx == 0 {
-		return prs, nil
+		return prs, false, nil
 	}
 
-	return groups[idx-1].PRs, nil
+	return groups[idx-1].PRs, true, nil
 }

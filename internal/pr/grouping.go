@@ -51,9 +51,6 @@ func sortedGroups(groups map[string][]PRInfo) []PRGroup {
 		})
 	}
 	sort.Slice(result, func(i, j int) bool {
-		if result[i].Count != result[j].Count {
-			return result[i].Count > result[j].Count
-		}
 		return result[i].Key < result[j].Key
 	})
 	return result
