@@ -117,3 +117,41 @@ func (s *PRStatus) FormatSummary() string {
 	total := s.Len()
 	return fmt.Sprintf("%d PRs processed: %d merged, %d failed, %d skipped", total, merged, failed, skipped)
 }
+
+func (s *PRStatus) ActionRequired() []StatusEntry {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var result []StatusEntry
+	for _, e := range s.entries {
+		switch e.State {
+		case StatusFailed, StatusConflict:
+			result = append(result, e)
+		}
+	}
+	return result
+}
+
+func (s *PRStatus) MergedEntries() []StatusEntry {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var result []StatusEntry
+	for _, e := range s.entries {
+		switch e.State {
+		case StatusMerged, StatusAlreadyMerged, StatusAutoMerge:
+			result = append(result, e)
+		}
+	}
+	return result
+}
+
+func (s *PRStatus) SkippedEntries() []StatusEntry {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var result []StatusEntry
+	for _, e := range s.entries {
+		if e.State == StatusSkipped {
+			result = append(result, e)
+		}
+	}
+	return result
+}

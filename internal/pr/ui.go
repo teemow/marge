@@ -78,6 +78,49 @@ func colorizeStatus(state StatusState, detail string) string {
 	}
 }
 
+func PrintPlainResults(w *os.File, status *PRStatus) {
+	merged := status.MergedEntries()
+	failed := status.ActionRequired()
+	skipped := status.SkippedEntries()
+
+	if len(merged) > 0 {
+		_, _ = fmt.Fprintf(w, "Merged (%d):\n", len(merged))
+		for _, e := range merged {
+			detail := e.State.String()
+			if e.Detail != "" {
+				detail = fmt.Sprintf("%s (%s)", detail, e.Detail)
+			}
+			_, _ = fmt.Fprintf(w, "  #%-6d %s/%s - %s [%s]\n", e.PR.Number, e.PR.Owner, e.PR.Repo, e.PR.Title, detail)
+		}
+		_, _ = fmt.Fprintln(w)
+	}
+
+	if len(failed) > 0 {
+		_, _ = fmt.Fprintf(w, "Failed (%d):\n", len(failed))
+		for _, e := range failed {
+			detail := e.State.String()
+			if e.Detail != "" {
+				detail = fmt.Sprintf("%s (%s)", detail, e.Detail)
+			}
+			_, _ = fmt.Fprintf(w, "  #%-6d %s/%s - %s [%s]\n", e.PR.Number, e.PR.Owner, e.PR.Repo, e.PR.Title, detail)
+			_, _ = fmt.Fprintf(w, "         %s\n", e.PR.URL)
+		}
+		_, _ = fmt.Fprintln(w)
+	}
+
+	if len(skipped) > 0 {
+		_, _ = fmt.Fprintf(w, "Skipped (%d):\n", len(skipped))
+		for _, e := range skipped {
+			detail := e.State.String()
+			if e.Detail != "" {
+				detail = fmt.Sprintf("%s (%s)", detail, e.Detail)
+			}
+			_, _ = fmt.Fprintf(w, "  #%-6d %s/%s - %s [%s]\n", e.PR.Number, e.PR.Owner, e.PR.Repo, e.PR.Title, detail)
+		}
+		_, _ = fmt.Fprintln(w)
+	}
+}
+
 func truncate(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s

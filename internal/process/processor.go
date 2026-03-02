@@ -19,16 +19,17 @@ const (
 type Processor struct {
 	Client *github.Client
 	DryRun bool
+	Login  string
 }
 
-func NewProcessor(client *github.Client, dryRun bool) *Processor {
-	return &Processor{Client: client, DryRun: dryRun}
+func NewProcessor(client *github.Client, dryRun bool, login string) *Processor {
+	return &Processor{Client: client, DryRun: dryRun, Login: login}
 }
 
 func (p *Processor) ProcessPR(ctx context.Context, info pr.PRInfo, status *pr.PRStatus, idx int) {
 	pullReq, _, err := p.Client.PullRequests.Get(ctx, info.Owner, info.Repo, info.Number)
 	if err != nil {
-		status.Update(idx, pr.StatusFailed, fmt.Sprintf("fetch error: %v", err))
+		status.Update(idx, pr.StatusFailed, ghErrorDetail("fetch error", err))
 		return
 	}
 
@@ -52,8 +53,12 @@ func (p *Processor) ProcessPR(ctx context.Context, info pr.PRInfo, status *pr.PR
 		return
 	}
 
-	if err := p.approve(ctx, info, status, idx); err != nil {
-		return
+	selfAuthored := strings.EqualFold(info.Author, p.Login)
+
+	if !selfAuthored {
+		if err := p.approve(ctx, info, status, idx); err != nil {
+			return
+		}
 	}
 
 	if pullReq.GetAutoMerge() != nil {
@@ -69,7 +74,7 @@ func (p *Processor) waitForChecks(ctx context.Context, info pr.PRInfo, status *p
 	for {
 		state, err := p.getCombinedCheckState(ctx, info)
 		if err != nil {
-			status.Update(idx, pr.StatusFailed, fmt.Sprintf("check error: %v", err))
+			status.Update(idx, pr.StatusFailed, ghErrorDetail("check error", err))
 			return err
 		}
 
@@ -146,19 +151,12 @@ func (p *Processor) getCombinedCheckState(ctx context.Context, info pr.PRInfo) (
 func (p *Processor) approve(ctx context.Context, info pr.PRInfo, status *pr.PRStatus, idx int) error {
 	reviews, _, err := p.Client.PullRequests.ListReviews(ctx, info.Owner, info.Repo, info.Number, nil)
 	if err != nil {
-		status.Update(idx, pr.StatusFailed, fmt.Sprintf("review list error: %v", err))
-		return err
-	}
-
-	// Check if we already approved
-	user, _, err := p.Client.Users.Get(ctx, "")
-	if err != nil {
-		status.Update(idx, pr.StatusFailed, fmt.Sprintf("user error: %v", err))
+		status.Update(idx, pr.StatusFailed, ghErrorDetail("review list error", err))
 		return err
 	}
 
 	for _, r := range reviews {
-		if r.GetUser().GetLogin() == user.GetLogin() && r.GetState() == "APPROVED" {
+		if r.GetUser().GetLogin() == p.Login && r.GetState() == "APPROVED" {
 			return nil
 		}
 	}
@@ -170,7 +168,7 @@ func (p *Processor) approve(ctx context.Context, info pr.PRInfo, status *pr.PRSt
 		Event: &event,
 	})
 	if err != nil {
-		status.Update(idx, pr.StatusFailed, fmt.Sprintf("approve error: %v", err))
+		status.Update(idx, pr.StatusFailed, ghErrorDetail("approve error", err))
 		return err
 	}
 
@@ -190,7 +188,7 @@ func (p *Processor) merge(ctx context.Context, info pr.PRInfo, pullReq *github.P
 		if strings.Contains(errMsg, "409") || strings.Contains(errMsg, "conflict") {
 			status.Update(idx, pr.StatusConflict, "merge conflict")
 		} else {
-			status.Update(idx, pr.StatusFailed, mergeFailureDetail(err))
+			status.Update(idx, pr.StatusFailed, ghErrorDetail("merge error", err))
 		}
 		return
 	}
@@ -198,12 +196,19 @@ func (p *Processor) merge(ctx context.Context, info pr.PRInfo, pullReq *github.P
 	status.Update(idx, pr.StatusMerged, method)
 }
 
-func mergeFailureDetail(err error) string {
+func ghErrorDetail(prefix string, err error) string {
 	var ghErr *github.ErrorResponse
-	if errors.As(err, &ghErr) && ghErr.Message != "" {
-		return ghErr.Message
+	if errors.As(err, &ghErr) {
+		for _, e := range ghErr.Errors {
+			if e.Message != "" {
+				return fmt.Sprintf("%s: %s", prefix, e.Message)
+			}
+		}
+		if ghErr.Message != "" {
+			return fmt.Sprintf("%s: %s", prefix, ghErr.Message)
+		}
 	}
-	return fmt.Sprintf("merge error: %v", err)
+	return fmt.Sprintf("%s: %v", prefix, err)
 }
 
 func determineMergeMethod(pullReq *github.PullRequest) string {
