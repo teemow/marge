@@ -23,6 +23,7 @@ type RunOptions struct {
 	TrustedAuthors string
 	MergeAuto      bool
 	Org            string
+	ReposFile      string
 	Grouping       string
 	Cols           []pr.TableColumn
 	OnComplete     func(*pr.PRStatus)
