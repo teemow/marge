@@ -23,16 +23,18 @@ func init() {
 	sweepCmd.Flags().StringVar(&sweepAuthor, "author", "all", "Filter by PR author: \"renovate\", \"dependabot\", or \"all\"")
 	sweepCmd.Flags().StringVar(&sweepOrg, "org", "", "Limit to repos owned by this org or user (e.g. \"giantswarm\")")
 	sweepCmd.Flags().BoolVar(&sweepNoTUI, "no-tui", false, "Disable live table, print plain-text results instead")
+	sweepCmd.Flags().BoolVar(&sweepMergeAuto, "merge-auto", false, "Also merge PRs that have auto-merge enabled")
 
 	rootCmd.AddCommand(sweepCmd)
 }
 
 var (
-	sweepDryRun bool
-	sweepWatch  bool
-	sweepAuthor string
-	sweepOrg    string
-	sweepNoTUI  bool
+	sweepDryRun    bool
+	sweepWatch     bool
+	sweepAuthor    string
+	sweepOrg       string
+	sweepNoTUI     bool
+	sweepMergeAuto bool
 )
 
 var sweepCmd = &cobra.Command{
@@ -145,7 +147,7 @@ func sweepOnce(ctx context.Context, client *github.Client) error {
 		close(refreshStopped)
 	}
 
-	proc := process.NewProcessor(client, sweepDryRun, login)
+	proc := process.NewProcessor(client, sweepDryRun, sweepMergeAuto, login)
 
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 5)

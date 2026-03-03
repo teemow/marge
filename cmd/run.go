@@ -159,7 +159,7 @@ func runOnce(ctx context.Context, client *github.Client, query string) error {
 		close(refreshStopped)
 	}
 
-	proc := process.NewProcessor(client, dryRun, login)
+	proc := process.NewProcessor(client, dryRun, false, login)
 
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 5)
