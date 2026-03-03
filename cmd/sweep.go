@@ -24,17 +24,19 @@ func init() {
 	sweepCmd.Flags().StringVar(&sweepOrg, "org", "", "Limit to repos owned by this org or user (e.g. \"giantswarm\")")
 	sweepCmd.Flags().BoolVar(&sweepNoTUI, "no-tui", false, "Disable live table, print plain-text results instead")
 	sweepCmd.Flags().BoolVar(&sweepMergeAuto, "merge-auto", false, "Also merge PRs that have auto-merge enabled")
+	sweepCmd.Flags().StringVar(&sweepTrustedAuthors, "trusted-authors", "renovate[bot],dependabot[bot]", "Comma-separated list of trusted PR author logins")
 
 	rootCmd.AddCommand(sweepCmd)
 }
 
 var (
-	sweepDryRun    bool
-	sweepWatch     bool
-	sweepAuthor    string
-	sweepOrg       string
-	sweepNoTUI     bool
-	sweepMergeAuto bool
+	sweepDryRun         bool
+	sweepWatch          bool
+	sweepAuthor         string
+	sweepOrg            string
+	sweepNoTUI          bool
+	sweepMergeAuto      bool
+	sweepTrustedAuthors string
 )
 
 var sweepCmd = &cobra.Command{
@@ -115,13 +117,12 @@ func sweepOnce(ctx context.Context, client *github.Client) error {
 		indices[i] = status.Add(p)
 	}
 
-	infoLabel := "Repository"
-	infoFn := pr.InfoFunc(pr.RepoInfoFunc)
+	cols := pr.FullColumns()
 
 	if !sweepNoTUI {
-		pr.PrintTableHeader(os.Stdout, infoLabel)
+		pr.PrintTableHeader(os.Stdout, cols)
 		for _, e := range status.Snapshot() {
-			pr.PrintRow(os.Stdout, e, infoFn)
+			pr.PrintRow(os.Stdout, e, cols)
 		}
 	}
 
@@ -139,7 +140,7 @@ func sweepOnce(ctx context.Context, client *github.Client) error {
 				case <-stopRefresh:
 					return
 				case <-ticker.C:
-					pr.UpdateTable(os.Stdout, status.Snapshot(), infoLabel, infoFn)
+					pr.UpdateTable(os.Stdout, status.Snapshot(), cols)
 				}
 			}
 		}()
@@ -147,7 +148,7 @@ func sweepOnce(ctx context.Context, client *github.Client) error {
 		close(refreshStopped)
 	}
 
-	proc := process.NewProcessor(client, sweepDryRun, sweepMergeAuto, login)
+	proc := process.NewProcessor(client, sweepDryRun, sweepMergeAuto, login, parseTrustedAuthors(sweepTrustedAuthors))
 
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 5)
@@ -170,7 +171,7 @@ func sweepOnce(ctx context.Context, client *github.Client) error {
 	if sweepNoTUI {
 		pr.PrintPlainResults(os.Stdout, status)
 	} else {
-		pr.UpdateTable(os.Stdout, status.Snapshot(), infoLabel, infoFn)
+		pr.UpdateTable(os.Stdout, status.Snapshot(), cols)
 	}
 
 	fmt.Fprintf(os.Stderr, "\n%s\n", status.FormatSummary())

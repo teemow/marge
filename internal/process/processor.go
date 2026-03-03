@@ -16,21 +16,48 @@ const (
 	checkPollTimeout  = 5 * time.Minute
 )
 
+var DefaultTrustedAuthors = map[string]bool{
+	"renovate[bot]":  true,
+	"dependabot[bot]": true,
+}
+
 type Processor struct {
 	Client         *github.Client
 	DryRun         bool
 	MergeAutoMerge bool
 	Login          string
+	TrustedAuthors map[string]bool
 }
 
-func NewProcessor(client *github.Client, dryRun bool, mergeAutoMerge bool, login string) *Processor {
-	return &Processor{Client: client, DryRun: dryRun, MergeAutoMerge: mergeAutoMerge, Login: login}
+func NewProcessor(client *github.Client, dryRun bool, mergeAutoMerge bool, login string, trustedAuthors map[string]bool) *Processor {
+	src := trustedAuthors
+	if src == nil {
+		src = DefaultTrustedAuthors
+	}
+	merged := make(map[string]bool, len(src)+1)
+	for k, v := range src {
+		merged[k] = v
+	}
+	merged[login] = true
+	return &Processor{
+		Client:         client,
+		DryRun:         dryRun,
+		MergeAutoMerge: mergeAutoMerge,
+		Login:          login,
+		TrustedAuthors: merged,
+	}
 }
 
 func (p *Processor) ProcessPR(ctx context.Context, info pr.PRInfo, status *pr.PRStatus, idx int) {
 	pullReq, _, err := p.Client.PullRequests.Get(ctx, info.Owner, info.Repo, info.Number)
 	if err != nil {
 		status.Update(idx, pr.StatusFailed, ghErrorDetail("fetch error", err))
+		return
+	}
+
+	actualAuthor := pullReq.GetUser().GetLogin()
+	if !p.isAuthorTrusted(actualAuthor) {
+		status.Update(idx, pr.StatusUntrustedAuthor, fmt.Sprintf("author %q not trusted", actualAuthor))
 		return
 	}
 
@@ -195,6 +222,13 @@ func (p *Processor) merge(ctx context.Context, info pr.PRInfo, pullReq *github.P
 	}
 
 	status.Update(idx, pr.StatusMerged, method)
+}
+
+func (p *Processor) isAuthorTrusted(login string) bool {
+	if strings.EqualFold(login, p.Login) {
+		return true
+	}
+	return p.TrustedAuthors[login]
 }
 
 func ghErrorDetail(prefix string, err error) string {

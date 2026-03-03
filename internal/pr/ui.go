@@ -7,10 +7,15 @@ import (
 )
 
 const (
-	colPR     = 10
-	colInfo   = 50
-	colStatus = 30
+	colPR     = 8
+	colStatus = 24
 )
+
+type TableColumn struct {
+	Label string
+	Width int
+	Fn    func(PRInfo) string
+}
 
 type InfoFunc func(PRInfo) string
 
@@ -26,35 +31,88 @@ func DependencyInfoFunc(p PRInfo) string {
 	return dep
 }
 
+func VersionInfoFunc(p PRInfo) string {
+	return ExtractVersion(p.Title)
+}
+
+func AuthorInfoFunc(p PRInfo) string {
+	return p.Author
+}
+
+func FullColumns() []TableColumn {
+	return []TableColumn{
+		{"Repository", 22, RepoInfoFunc},
+		{"Dependency", 22, DependencyInfoFunc},
+		{"Version", 18, VersionInfoFunc},
+		{"Author", 16, AuthorInfoFunc},
+	}
+}
+
+func RepoSelectedColumns() []TableColumn {
+	return []TableColumn{
+		{"Dependency", 28, DependencyInfoFunc},
+		{"Version", 18, VersionInfoFunc},
+		{"Author", 16, AuthorInfoFunc},
+	}
+}
+
+func DependencySelectedColumns() []TableColumn {
+	return []TableColumn{
+		{"Repository", 28, RepoInfoFunc},
+		{"Version", 18, VersionInfoFunc},
+		{"Author", 16, AuthorInfoFunc},
+	}
+}
+
 func MakeHyperlink(text, url string) string {
 	return fmt.Sprintf("\033]8;;%s\033\\%s\033]8;;\033\\", url, text)
 }
 
-func PrintTableHeader(w *os.File, infoLabel string) {
-	header := fmt.Sprintf("%-*s %-*s %-*s", colPR, "PR", colInfo, infoLabel, colStatus, "Status")
-	divider := strings.Repeat("-", colPR+colInfo+colStatus+2)
+func tableWidth(cols []TableColumn) int {
+	w := colPR + colStatus
+	for _, c := range cols {
+		w += c.Width
+	}
+	w += len(cols) + 1
+	return w
+}
+
+func PrintTableHeader(w *os.File, cols []TableColumn) {
+	parts := make([]string, 0, len(cols)+2)
+	parts = append(parts, fmt.Sprintf("%-*s", colPR, "PR"))
+	for _, c := range cols {
+		parts = append(parts, fmt.Sprintf("%-*s", c.Width, c.Label))
+	}
+	parts = append(parts, fmt.Sprintf("%-*s", colStatus, "Status"))
+	header := strings.Join(parts, " ")
+	divider := strings.Repeat("-", tableWidth(cols))
 	_, _ = fmt.Fprintln(w, header)
 	_, _ = fmt.Fprintln(w, divider)
 }
 
-func PrintRow(w *os.File, e StatusEntry, infoFn InfoFunc) {
+func PrintRow(w *os.File, e StatusEntry, cols []TableColumn) {
 	prLabel := fmt.Sprintf("%-*s", colPR, fmt.Sprintf("#%d", e.PR.Number))
 	prLink := MakeHyperlink(prLabel, e.PR.URL)
-	info := infoFn(e.PR)
-	statusStr := colorizeStatus(e.State, e.Detail)
-	_, _ = fmt.Fprintf(w, "\033[2K%s %-*s %s\n", prLink, colInfo, truncate(info, colInfo), statusStr)
+
+	parts := make([]string, 0, len(cols)+2)
+	parts = append(parts, prLink)
+	for _, c := range cols {
+		parts = append(parts, fmt.Sprintf("%-*s", c.Width, truncate(c.Fn(e.PR), c.Width)))
+	}
+	parts = append(parts, colorizeStatus(e.State, e.Detail))
+
+	_, _ = fmt.Fprintf(w, "\033[2K%s\n", strings.Join(parts, " "))
 }
 
-func UpdateTable(w *os.File, entries []StatusEntry, infoLabel string, infoFn InfoFunc) {
-	lineCount := len(entries) + 2 // +2 for header and divider
+func UpdateTable(w *os.File, entries []StatusEntry, cols []TableColumn) {
+	lineCount := len(entries) + 2
 
-	// Move cursor up to overwrite the table
 	_, _ = fmt.Fprintf(w, "\033[%dA", lineCount)
 
-	PrintTableHeader(w, infoLabel)
+	PrintTableHeader(w, cols)
 
 	for _, e := range entries {
-		PrintRow(w, e, infoFn)
+		PrintRow(w, e, cols)
 	}
 }
 
@@ -67,7 +125,7 @@ func colorizeStatus(state StatusState, detail string) string {
 	switch state {
 	case StatusMerged, StatusAlreadyMerged, StatusAutoMerge:
 		return fmt.Sprintf("\033[32m%s\033[0m", label) // green
-	case StatusFailed, StatusConflict:
+	case StatusFailed, StatusConflict, StatusUntrustedAuthor:
 		return fmt.Sprintf("\033[31m%s\033[0m", label) // red
 	case StatusSkipped:
 		return fmt.Sprintf("\033[33m%s\033[0m", label) // yellow
@@ -86,11 +144,7 @@ func PrintPlainResults(w *os.File, status *PRStatus) {
 	if len(merged) > 0 {
 		_, _ = fmt.Fprintf(w, "Merged (%d):\n", len(merged))
 		for _, e := range merged {
-			detail := e.State.String()
-			if e.Detail != "" {
-				detail = fmt.Sprintf("%s (%s)", detail, e.Detail)
-			}
-			_, _ = fmt.Fprintf(w, "  #%-6d %s/%s - %s [%s]\n", e.PR.Number, e.PR.Owner, e.PR.Repo, e.PR.Title, detail)
+			printPlainEntry(w, e)
 		}
 		_, _ = fmt.Fprintln(w)
 	}
@@ -98,11 +152,7 @@ func PrintPlainResults(w *os.File, status *PRStatus) {
 	if len(failed) > 0 {
 		_, _ = fmt.Fprintf(w, "Failed (%d):\n", len(failed))
 		for _, e := range failed {
-			detail := e.State.String()
-			if e.Detail != "" {
-				detail = fmt.Sprintf("%s (%s)", detail, e.Detail)
-			}
-			_, _ = fmt.Fprintf(w, "  #%-6d %s/%s - %s [%s]\n", e.PR.Number, e.PR.Owner, e.PR.Repo, e.PR.Title, detail)
+			printPlainEntry(w, e)
 			_, _ = fmt.Fprintf(w, "         %s\n", e.PR.URL)
 		}
 		_, _ = fmt.Fprintln(w)
@@ -111,14 +161,28 @@ func PrintPlainResults(w *os.File, status *PRStatus) {
 	if len(skipped) > 0 {
 		_, _ = fmt.Fprintf(w, "Skipped (%d):\n", len(skipped))
 		for _, e := range skipped {
-			detail := e.State.String()
-			if e.Detail != "" {
-				detail = fmt.Sprintf("%s (%s)", detail, e.Detail)
-			}
-			_, _ = fmt.Fprintf(w, "  #%-6d %s/%s - %s [%s]\n", e.PR.Number, e.PR.Owner, e.PR.Repo, e.PR.Title, detail)
+			printPlainEntry(w, e)
 		}
 		_, _ = fmt.Fprintln(w)
 	}
+}
+
+func printPlainEntry(w *os.File, e StatusEntry) {
+	detail := e.State.String()
+	if e.Detail != "" {
+		detail = fmt.Sprintf("%s (%s)", detail, e.Detail)
+	}
+	dep := ExtractDependencyName(e.PR.Title)
+	ver := ExtractVersion(e.PR.Title)
+	if dep == "" {
+		dep = e.PR.Title
+	}
+	verStr := ""
+	if ver != "" {
+		verStr = " " + ver
+	}
+	_, _ = fmt.Fprintf(w, "  #%-6d %s/%s  %s%s  [%s] [%s]\n",
+		e.PR.Number, e.PR.Owner, e.PR.Repo, dep, verStr, e.PR.Author, detail)
 }
 
 func truncate(s string, maxLen int) string {
