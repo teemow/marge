@@ -18,6 +18,7 @@ const (
 	StatusFailed
 	StatusSkipped
 	StatusConflict
+	StatusUntrustedAuthor
 )
 
 func (s StatusState) String() string {
@@ -42,6 +43,8 @@ func (s StatusState) String() string {
 		return "Skipped"
 	case StatusConflict:
 		return "Conflict"
+	case StatusUntrustedAuthor:
+		return "Untrusted author"
 	default:
 		return "Unknown"
 	}
@@ -97,7 +100,7 @@ func (s *PRStatus) Summary() (merged, failed, skipped int) {
 		switch e.State {
 		case StatusMerged, StatusAlreadyMerged, StatusAutoMerge:
 			merged++
-		case StatusFailed, StatusConflict:
+		case StatusFailed, StatusConflict, StatusUntrustedAuthor:
 			failed++
 		case StatusSkipped:
 			skipped++
@@ -124,7 +127,7 @@ func (s *PRStatus) ActionRequired() []StatusEntry {
 	var result []StatusEntry
 	for _, e := range s.entries {
 		switch e.State {
-		case StatusFailed, StatusConflict:
+		case StatusFailed, StatusConflict, StatusUntrustedAuthor:
 			result = append(result, e)
 		}
 	}

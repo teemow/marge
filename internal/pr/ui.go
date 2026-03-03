@@ -8,7 +8,8 @@ import (
 
 const (
 	colPR     = 10
-	colInfo   = 50
+	colInfo   = 40
+	colAuthor = 18
 	colStatus = 30
 )
 
@@ -31,8 +32,8 @@ func MakeHyperlink(text, url string) string {
 }
 
 func PrintTableHeader(w *os.File, infoLabel string) {
-	header := fmt.Sprintf("%-*s %-*s %-*s", colPR, "PR", colInfo, infoLabel, colStatus, "Status")
-	divider := strings.Repeat("-", colPR+colInfo+colStatus+2)
+	header := fmt.Sprintf("%-*s %-*s %-*s %-*s", colPR, "PR", colInfo, infoLabel, colAuthor, "Author", colStatus, "Status")
+	divider := strings.Repeat("-", colPR+colInfo+colAuthor+colStatus+3)
 	_, _ = fmt.Fprintln(w, header)
 	_, _ = fmt.Fprintln(w, divider)
 }
@@ -42,7 +43,7 @@ func PrintRow(w *os.File, e StatusEntry, infoFn InfoFunc) {
 	prLink := MakeHyperlink(prLabel, e.PR.URL)
 	info := infoFn(e.PR)
 	statusStr := colorizeStatus(e.State, e.Detail)
-	_, _ = fmt.Fprintf(w, "\033[2K%s %-*s %s\n", prLink, colInfo, truncate(info, colInfo), statusStr)
+	_, _ = fmt.Fprintf(w, "\033[2K%s %-*s %-*s %s\n", prLink, colInfo, truncate(info, colInfo), colAuthor, truncate(e.PR.Author, colAuthor), statusStr)
 }
 
 func UpdateTable(w *os.File, entries []StatusEntry, infoLabel string, infoFn InfoFunc) {
@@ -67,7 +68,7 @@ func colorizeStatus(state StatusState, detail string) string {
 	switch state {
 	case StatusMerged, StatusAlreadyMerged, StatusAutoMerge:
 		return fmt.Sprintf("\033[32m%s\033[0m", label) // green
-	case StatusFailed, StatusConflict:
+	case StatusFailed, StatusConflict, StatusUntrustedAuthor:
 		return fmt.Sprintf("\033[31m%s\033[0m", label) // red
 	case StatusSkipped:
 		return fmt.Sprintf("\033[33m%s\033[0m", label) // yellow

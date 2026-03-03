@@ -19,11 +19,12 @@ import (
 )
 
 var (
-	dryRun   bool
-	watch    bool
-	grouping string
-	author   string
-	noTUI    bool
+	dryRun         bool
+	watch          bool
+	grouping       string
+	author         string
+	noTUI          bool
+	trustedAuthors string
 )
 
 func init() {
@@ -32,6 +33,7 @@ func init() {
 	runCmd.Flags().StringVar(&grouping, "grouping", "repo", "Group by \"repo\" or \"dependency\"")
 	runCmd.Flags().StringVar(&author, "author", "all", "Filter by PR author: \"renovate\", \"dependabot\", or \"all\"")
 	runCmd.Flags().BoolVar(&noTUI, "no-tui", false, "Disable live table, print plain-text results instead")
+	runCmd.Flags().StringVar(&trustedAuthors, "trusted-authors", "renovate[bot],dependabot[bot]", "Comma-separated list of trusted PR author logins")
 
 	rootCmd.AddCommand(runCmd)
 
@@ -159,7 +161,7 @@ func runOnce(ctx context.Context, client *github.Client, query string) error {
 		close(refreshStopped)
 	}
 
-	proc := process.NewProcessor(client, dryRun, false, login)
+	proc := process.NewProcessor(client, dryRun, false, login, parseTrustedAuthors(trustedAuthors))
 
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 5)
@@ -333,7 +335,8 @@ func interactiveSelect(prs []pr.PRInfo) ([]pr.PRInfo, bool, error) {
 	items := make([]string, 0, len(groups)+1)
 	items = append(items, fmt.Sprintf("All (%d PRs)", len(prs)))
 	for _, g := range groups {
-		items = append(items, fmt.Sprintf("%s (%d PRs)", g.Key, g.Count))
+		authors := uniqueAuthors(g.PRs)
+		items = append(items, fmt.Sprintf("%s (%d PRs) [%s]", g.Key, g.Count, strings.Join(authors, ", ")))
 	}
 
 	prompt := promptui.Select{
@@ -352,4 +355,27 @@ func interactiveSelect(prs []pr.PRInfo) ([]pr.PRInfo, bool, error) {
 	}
 
 	return groups[idx-1].PRs, true, nil
+}
+
+func parseTrustedAuthors(csv string) map[string]bool {
+	m := make(map[string]bool)
+	for _, a := range strings.Split(csv, ",") {
+		a = strings.TrimSpace(a)
+		if a != "" {
+			m[a] = true
+		}
+	}
+	return m
+}
+
+func uniqueAuthors(prs []pr.PRInfo) []string {
+	seen := make(map[string]bool)
+	var authors []string
+	for _, p := range prs {
+		if p.Author != "" && !seen[p.Author] {
+			seen[p.Author] = true
+			authors = append(authors, p.Author)
+		}
+	}
+	return authors
 }
