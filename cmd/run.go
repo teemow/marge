@@ -24,6 +24,7 @@ func init() {
 	runCmd.Flags().StringVar(&runOpts.Author, "author", "all", "Filter by PR author: \"renovate\", \"dependabot\", or \"all\"")
 	runCmd.Flags().StringVar(&runOpts.Org, "org", "", "Limit to repos owned by this org or user")
 	runCmd.Flags().BoolVar(&runOpts.NoTUI, "no-tui", false, "Disable live table, print plain-text results instead")
+	runCmd.Flags().BoolVar(&runOpts.MergeAuto, "merge-auto", false, "Also merge PRs that have auto-merge enabled")
 	runCmd.Flags().StringVar(&runOpts.TrustedAuthors, "trusted-authors", "renovate[bot],dependabot[bot]", "Comma-separated list of trusted PR author logins")
 
 	rootCmd.AddCommand(runCmd)
