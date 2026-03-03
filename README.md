@@ -45,15 +45,11 @@ export GITHUB_TOKEN="ghp_..."
 
 ## Usage
 
-```
-marge [query] [flags]
-```
+### `marge [query] [flags]` (default command)
 
 When run without a query, marge enters **interactive mode**: it fetches all open bot PRs requesting your review and lets you pick a group to process.
 
 When run with a query (e.g. a repo name or dependency), it filters PRs directly and processes them.
-
-### Flags
 
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
@@ -61,6 +57,29 @@ When run with a query (e.g. a repo name or dependency), it filters PRs directly 
 | `--watch` | `-w` | `false` | Keep polling for new PRs every 60 seconds |
 | `--grouping` | | `repo` | Group by `repo` or `dependency` |
 | `--author` | | `all` | Filter by PR author: `renovate`, `dependabot`, or `all` |
+| `--no-tui` | | `false` | Disable the live table; print plain-text results instead |
+| `--trusted-authors` | | `renovate[bot],dependabot[bot]` | Comma-separated list of trusted PR author logins |
+
+### `marge sweep [flags]`
+
+Processes all matching PRs without interactive grouping. After processing, prints an **Action required** section listing any PRs that failed, have conflicts, or came from untrusted authors.
+
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--dry-run` | | `false` | Show what would be done without making changes |
+| `--watch` | `-w` | `false` | Keep polling for new PRs every 60 seconds |
+| `--author` | | `all` | Filter by PR author: `renovate`, `dependabot`, or `all` |
+| `--org` | | | Limit to repos owned by this org or user |
+| `--no-tui` | | `false` | Disable the live table; print plain-text results instead |
+| `--merge-auto` | | `false` | Also merge PRs that have auto-merge enabled (by default these are skipped) |
+| `--trusted-authors` | | `renovate[bot],dependabot[bot]` | Comma-separated list of trusted PR author logins |
+
+### Other commands
+
+```bash
+marge version         # Print the current version
+marge self-update     # Update to the latest release
+```
 
 ### Examples
 
@@ -94,23 +113,29 @@ Group by dependency instead of repository:
 marge --grouping dependency
 ```
 
-### Other commands
+Sweep all PRs in a specific org:
 
 ```bash
-marge version         # Print the current version
-marge self-update     # Update to the latest release
+marge sweep --org my-org
+```
+
+Sweep including PRs with auto-merge enabled:
+
+```bash
+marge sweep --merge-auto
 ```
 
 ## How it works
 
-1. Searches GitHub for open PRs authored by `app/renovate` or `app/dependabot` that are either requesting your review or in your own repositories.
+1. Searches GitHub for open PRs authored by `app/renovate` or `app/dependabot` that are either requesting your review or in your own repositories. Self-authored dependency-update PRs (e.g. from self-hosted Renovate) in your repos are also included.
 2. In interactive mode, groups results by repository (or dependency) and presents a selector.
-3. For each selected PR, processes it in parallel (up to 5 concurrent):
-   - Checks combined commit status and check runs; polls for up to 5 minutes if pending.
+3. Validates each PR's author against a trusted allow-list (`renovate[bot]`, `dependabot[bot]`, and the authenticated user by default). PRs from untrusted authors are refused with a clear status message. You can extend the allow-list with `--trusted-authors`.
+4. For each selected PR, processes it in parallel (up to 5 concurrent):
+   - Checks combined commit status and check runs; polls every 15 seconds for up to 5 minutes if pending.
    - Approves the PR if not already approved.
-   - If auto-merge is enabled, lets the merge queue handle it.
+   - If auto-merge is enabled, lets the merge queue handle it (unless `--merge-auto` is set).
    - Otherwise merges via squash.
-4. Displays a live-updating table with PR status throughout.
+5. Displays a live-updating table with columns for repository, dependency, version, author, and status. Use `--no-tui` for plain-text output.
 
 ## Development
 
