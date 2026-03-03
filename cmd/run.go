@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 
 	"github.com/google/go-github/v84/github"
@@ -23,6 +24,7 @@ func init() {
 	runCmd.Flags().StringVar(&runOpts.Grouping, "grouping", "repo", "Group by \"repo\" or \"dependency\"")
 	runCmd.Flags().StringVar(&runOpts.Author, "author", "all", "Filter by PR author: \"renovate\", \"dependabot\", or \"all\"")
 	runCmd.Flags().StringVar(&runOpts.Org, "org", "", "Limit to repos owned by this org or user")
+	runCmd.Flags().StringVar(&runOpts.ReposFile, "repos-file", "", "File with org/repo entries (one per line) to also scan for bot PRs")
 	runCmd.Flags().BoolVar(&runOpts.NoTUI, "no-tui", false, "Disable live table, print plain-text results instead")
 	runCmd.Flags().BoolVar(&runOpts.MergeAuto, "merge-auto", false, "Also merge PRs that have auto-merge enabled")
 	runCmd.Flags().StringVar(&runOpts.TrustedAuthors, "trusted-authors", "renovate[bot],dependabot[bot]", "Comma-separated list of trusted PR author logins")
@@ -61,7 +63,7 @@ optionally group them interactively, then approve and merge them.`,
 		}
 
 		return watchLoop(ctx, runOpts.Watch, func(ctx context.Context) error {
-			prs, err := searchPRs(ctx, client, query, login, runOpts.Author)
+			prs, err := searchPRs(ctx, client, query, login, runOpts.Author, runOpts.ReposFile)
 			if err != nil {
 				return fmt.Errorf("searching PRs: %w", err)
 			}
@@ -106,7 +108,12 @@ optionally group them interactively, then approve and merge them.`,
 	},
 }
 
-func searchPRs(ctx context.Context, client *github.Client, query string, login string, authorFilter string) ([]pr.PRInfo, error) {
+func searchPRs(ctx context.Context, client *github.Client, query string, login string, authorFilter string, reposFile string) ([]pr.PRInfo, error) {
+	if reposFile != "" {
+		seen := make(map[string]bool)
+		return listRepoPRs(ctx, client, reposFile, query, authorFilter, seen)
+	}
+
 	var authorFilters []string
 	switch authorFilter {
 	case "renovate":
@@ -219,6 +226,105 @@ func searchPRs(ctx context.Context, client *github.Client, query string, login s
 		selfOpts.Page = resp.NextPage
 	}
 
+	return allPRs, nil
+}
+
+func listRepoPRs(ctx context.Context, client *github.Client, reposFile, query, authorFilter string, seen map[string]bool) ([]pr.PRInfo, error) {
+	data, err := os.ReadFile(reposFile)
+	if err != nil {
+		return nil, fmt.Errorf("reading repos file: %w", err)
+	}
+
+	botAuthors := make(map[string]bool)
+	switch authorFilter {
+	case "renovate":
+		botAuthors["renovate[bot]"] = true
+	case "dependabot":
+		botAuthors["dependabot[bot]"] = true
+	default:
+		botAuthors["renovate[bot]"] = true
+		botAuthors["dependabot[bot]"] = true
+	}
+
+	type repoRef struct{ Owner, Name string }
+	var repos []repoRef
+	queryLower := strings.ToLower(query)
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.SplitN(line, "/", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		owner, name := parts[0], parts[1]
+		if query != "" && !strings.Contains(strings.ToLower(owner+"/"+name), queryLower) {
+			continue
+		}
+		repos = append(repos, repoRef{owner, name})
+	}
+
+	var (
+		mu     sync.Mutex
+		allPRs []pr.PRInfo
+		wg     sync.WaitGroup
+	)
+	sem := make(chan struct{}, 10)
+
+	for _, repo := range repos {
+		wg.Add(1)
+		go func(owner, name string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			opts := &github.PullRequestListOptions{
+				State:       "open",
+				Sort:        "updated",
+				ListOptions: github.ListOptions{PerPage: 100},
+			}
+			for {
+				pulls, resp, err := client.PullRequests.List(ctx, owner, name, opts)
+				if err != nil {
+					return
+				}
+
+				var batch []pr.PRInfo
+				for _, pull := range pulls {
+					url := pull.GetHTMLURL()
+					author := pull.GetUser().GetLogin()
+					if !botAuthors[author] {
+						continue
+					}
+					batch = append(batch, pr.PRInfo{
+						Owner:  owner,
+						Repo:   name,
+						Number: pull.GetNumber(),
+						Title:  pull.GetTitle(),
+						URL:    url,
+						Author: author,
+					})
+				}
+
+				mu.Lock()
+				for _, p := range batch {
+					if !seen[p.URL] {
+						seen[p.URL] = true
+						allPRs = append(allPRs, p)
+					}
+				}
+				mu.Unlock()
+
+				if resp.NextPage == 0 {
+					break
+				}
+				opts.Page = resp.NextPage
+			}
+		}(repo.Owner, repo.Name)
+	}
+
+	wg.Wait()
 	return allPRs, nil
 }
 

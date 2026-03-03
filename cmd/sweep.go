@@ -20,6 +20,7 @@ func init() {
 	sweepCmd.Flags().BoolVarP(&sweepOpts.Watch, "watch", "w", false, "Keep polling for new PRs (every 60s)")
 	sweepCmd.Flags().StringVar(&sweepOpts.Author, "author", "all", "Filter by PR author: \"renovate\", \"dependabot\", or \"all\"")
 	sweepCmd.Flags().StringVar(&sweepOpts.Org, "org", "", "Limit to repos owned by this org or user")
+	sweepCmd.Flags().StringVar(&sweepOpts.ReposFile, "repos-file", "", "File with org/repo entries (one per line) to also scan for bot PRs")
 	sweepCmd.Flags().BoolVar(&sweepOpts.NoTUI, "no-tui", false, "Disable live table, print plain-text results instead")
 	sweepCmd.Flags().BoolVar(&sweepOpts.MergeAuto, "merge-auto", false, "Also merge PRs that have auto-merge enabled")
 	sweepCmd.Flags().StringVar(&sweepOpts.TrustedAuthors, "trusted-authors", "renovate[bot],dependabot[bot]", "Comma-separated list of trusted PR author logins")
@@ -50,7 +51,7 @@ that could not be merged so you can fix them manually.`,
 		login := me.GetLogin()
 
 		return watchLoop(ctx, sweepOpts.Watch, func(ctx context.Context) error {
-			prs, err := searchPRs(ctx, client, "", login, sweepOpts.Author)
+			prs, err := searchPRs(ctx, client, "", login, sweepOpts.Author, sweepOpts.ReposFile)
 			if err != nil {
 				return fmt.Errorf("searching PRs: %w", err)
 			}
