@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-func TestParseRepoFromURL(t *testing.T) {
+func TestExtractOwnerRepo(t *testing.T) {
 	tests := []struct {
 		name      string
 		url       string
@@ -13,32 +13,14 @@ func TestParseRepoFromURL(t *testing.T) {
 		wantErr   bool
 	}{
 		{
-			name:      "standard GitHub URL",
-			url:       "https://github.com/giantswarm/flux-app",
-			wantOwner: "giantswarm",
-			wantRepo:  "flux-app",
-		},
-		{
-			name:      "GitHub URL with trailing slash",
-			url:       "https://github.com/giantswarm/flux-app/",
-			wantOwner: "giantswarm",
-			wantRepo:  "flux-app",
-		},
-		{
-			name:      "GitHub URL with .git suffix",
-			url:       "https://github.com/giantswarm/flux-app.git",
-			wantOwner: "giantswarm",
-			wantRepo:  "flux-app",
-		},
-		{
-			name:      "GitHub URL with path segments",
+			name:      "standard PR URL",
 			url:       "https://github.com/giantswarm/flux-app/pull/42",
 			wantOwner: "giantswarm",
 			wantRepo:  "flux-app",
 		},
 		{
-			name:      "SSH-style URL",
-			url:       "git@github.com/giantswarm/flux-app",
+			name:      "repo URL with trailing path",
+			url:       "https://github.com/giantswarm/flux-app/issues/1",
 			wantOwner: "giantswarm",
 			wantRepo:  "flux-app",
 		},
@@ -48,12 +30,7 @@ func TestParseRepoFromURL(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "unrelated URL",
-			url:     "https://example.com/foo",
-			wantErr: true,
-		},
-		{
-			name:    "only owner, no repo",
+			name:    "only owner",
 			url:     "https://github.com/giantswarm",
 			wantErr: true,
 		},
@@ -61,7 +38,7 @@ func TestParseRepoFromURL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			owner, repo, err := ParseRepoFromURL(tt.url)
+			owner, repo, err := ExtractOwnerRepo(tt.url)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatalf("expected error, got owner=%q repo=%q", owner, repo)

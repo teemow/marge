@@ -206,10 +206,8 @@ func (p *Processor) approve(ctx context.Context, info pr.PRInfo, status *pr.PRSt
 func (p *Processor) merge(ctx context.Context, info pr.PRInfo, pullReq *github.PullRequest, status *pr.PRStatus, idx int) {
 	status.Update(idx, pr.StatusMerging, "")
 
-	method := determineMergeMethod(pullReq)
-
 	_, _, err := p.Client.PullRequests.Merge(ctx, info.Owner, info.Repo, info.Number, "", &github.PullRequestOptions{
-		MergeMethod: method,
+		MergeMethod: "squash",
 	})
 	if err != nil {
 		errMsg := err.Error()
@@ -221,7 +219,7 @@ func (p *Processor) merge(ctx context.Context, info pr.PRInfo, pullReq *github.P
 		return
 	}
 
-	status.Update(idx, pr.StatusMerged, method)
+	status.Update(idx, pr.StatusMerged, "squash")
 }
 
 func (p *Processor) isAuthorTrusted(login string) bool {
@@ -244,11 +242,4 @@ func ghErrorDetail(prefix string, err error) string {
 		}
 	}
 	return fmt.Sprintf("%s: %v", prefix, err)
-}
-
-func determineMergeMethod(pullReq *github.PullRequest) string {
-	// Prefer squash > merge > rebase
-	// GitHub API doesn't expose allowed methods on the PR itself,
-	// so default to squash which is the most common for dependency updates.
-	return "squash"
 }

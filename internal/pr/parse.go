@@ -6,14 +6,14 @@ import (
 	"strings"
 )
 
-var repoURLPattern = regexp.MustCompile(`github\.com/([^/]+)/([^/]+?)(?:\.git)?(?:/|$)`)
-
-func ParseRepoFromURL(url string) (owner, repo string, err error) {
-	matches := repoURLPattern.FindStringSubmatch(url)
-	if len(matches) < 3 {
-		return "", "", fmt.Errorf("cannot parse repo from URL: %s", url)
+// ExtractOwnerRepo parses owner and repo from a GitHub HTML URL
+// (e.g. "https://github.com/OWNER/REPO/pull/123").
+func ExtractOwnerRepo(htmlURL string) (string, string, error) {
+	parts := strings.Split(strings.TrimPrefix(htmlURL, "https://github.com/"), "/")
+	if len(parts) < 2 {
+		return "", "", fmt.Errorf("unexpected URL format: %s", htmlURL)
 	}
-	return matches[1], matches[2], nil
+	return parts[0], parts[1], nil
 }
 
 var dependencyPatterns = []*regexp.Regexp{
