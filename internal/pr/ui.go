@@ -17,8 +17,6 @@ type TableColumn struct {
 	Fn    func(PRInfo) string
 }
 
-type InfoFunc func(PRInfo) string
-
 func RepoInfoFunc(p PRInfo) string {
 	return fmt.Sprintf("%s/%s", p.Owner, p.Repo)
 }
@@ -99,7 +97,7 @@ func PrintRow(w *os.File, e StatusEntry, cols []TableColumn) {
 	for _, c := range cols {
 		parts = append(parts, fmt.Sprintf("%-*s", c.Width, truncate(c.Fn(e.PR), c.Width)))
 	}
-	parts = append(parts, colorizeStatus(e.State, e.Detail))
+	parts = append(parts, ColorizeStatus(e.State, e.Detail))
 
 	_, _ = fmt.Fprintf(w, "\033[2K%s\n", strings.Join(parts, " "))
 }
@@ -116,7 +114,7 @@ func UpdateTable(w *os.File, entries []StatusEntry, cols []TableColumn) {
 	}
 }
 
-func colorizeStatus(state StatusState, detail string) string {
+func ColorizeStatus(state StatusState, detail string) string {
 	label := state.String()
 	if detail != "" {
 		label = fmt.Sprintf("%s (%s)", label, detail)

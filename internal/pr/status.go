@@ -116,8 +116,20 @@ func (s *PRStatus) Len() int {
 }
 
 func (s *PRStatus) FormatSummary() string {
-	merged, failed, skipped := s.Summary()
-	total := s.Len()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var merged, failed, skipped int
+	for _, e := range s.entries {
+		switch e.State {
+		case StatusMerged, StatusAlreadyMerged, StatusAutoMerge:
+			merged++
+		case StatusFailed, StatusConflict, StatusUntrustedAuthor:
+			failed++
+		case StatusSkipped:
+			skipped++
+		}
+	}
+	total := len(s.entries)
 	return fmt.Sprintf("%d PRs processed: %d merged, %d failed, %d skipped", total, merged, failed, skipped)
 }
 
