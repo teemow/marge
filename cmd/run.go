@@ -8,7 +8,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/google/go-github/v69/github"
+	"github.com/google/go-github/v84/github"
 	"github.com/manifoldco/promptui"
 	"github.com/spf13/cobra"
 	gh "github.com/teemow/marge/internal/github"

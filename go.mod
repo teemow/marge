@@ -1,10 +1,10 @@
 module github.com/teemow/marge
 
-go 1.24.11
+go 1.25.0
 
 require (
 	github.com/creativeprojects/go-selfupdate v1.5.2
-	github.com/google/go-github/v69 v69.2.0
+	github.com/google/go-github/v84 v84.0.0
 	github.com/manifoldco/promptui v0.9.0
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/oauth2 v0.35.0
@@ -18,7 +18,7 @@ require (
 	github.com/davidmz/go-pageant v1.0.2 // indirect
 	github.com/go-fed/httpsig v1.1.0 // indirect
 	github.com/google/go-github/v74 v74.0.0 // indirect
-	github.com/google/go-querystring v1.1.0 // indirect
+	github.com/google/go-querystring v1.2.0 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
 	github.com/hashicorp/go-retryablehttp v0.7.8 // indirect
 	github.com/hashicorp/go-version v1.8.0 // indirect
