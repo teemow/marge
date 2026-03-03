@@ -111,6 +111,67 @@ func TestExtractDependencyName(t *testing.T) {
 			title: "Lock file maintenance",
 			want:  "Lock file maintenance",
 		},
+		// Renovate: rust crate
+		{
+			name:  "renovate rust crate",
+			title: "fix(deps): update rust crate kube to v3",
+			want:  "kube",
+		},
+		{
+			name:  "renovate rust crate whoami",
+			title: "fix(deps): update rust crate whoami to v2",
+			want:  "whoami",
+		},
+		// Renovate: terraform provider
+		{
+			name:  "renovate terraform aws",
+			title: "chore(deps): update terraform aws to v6",
+			want:  "aws",
+		},
+		{
+			name:  "renovate terraform ignition",
+			title: "chore(deps): update terraform ignition to v2",
+			want:  "ignition",
+		},
+		{
+			name:  "renovate terraform cloudflare",
+			title: "chore(deps): update terraform cloudflare to v5",
+			want:  "cloudflare",
+		},
+		// Renovate: monorepo
+		{
+			name:  "renovate monorepo without version",
+			title: "fix(deps): update opentelemetry-go monorepo",
+			want:  "opentelemetry-go",
+		},
+		{
+			name:  "renovate monorepo with version",
+			title: "chore(deps): update eslint monorepo to v10 (major)",
+			want:  "eslint",
+		},
+		// Renovate: group update
+		{
+			name:  "renovate all non-major dependencies",
+			title: "fix(deps): update all non-major dependencies",
+			want:  "all non-major dependencies",
+		},
+		// Conventional commit prefix: "fix(deps): update module X"
+		{
+			name:  "conventional commit update module",
+			title: "fix(deps): update module github.com/mark3labs/mcp-go to v0.44.1",
+			want:  "github.com/mark3labs/mcp-go",
+		},
+		{
+			name:  "conventional commit update module go-github",
+			title: "fix(deps): update module github.com/google/go-github/v60 to v84",
+			want:  "github.com/google/go-github/v60",
+		},
+		// Conventional commit prefix: "fix(deps): update dependency @scoped/pkg"
+		{
+			name:  "conventional commit update dependency scoped npm",
+			title: "fix(deps): update dependency @types/node to v20.10.0",
+			want:  "@types/node",
+		},
 		// Dependabot: "Bump X from Y to Z"
 		{
 			name:  "dependabot bump from to",
@@ -121,6 +182,16 @@ func TestExtractDependencyName(t *testing.T) {
 			name:  "dependabot bump scoped package",
 			title: "Bump github.com/spf13/cobra from 1.8.0 to 1.9.1",
 			want:  "github.com/spf13/cobra",
+		},
+		{
+			name:  "dependabot bump with conventional commit prefix",
+			title: "build(deps): bump go.opentelemetry.io/otel/sdk from 1.39.0 to 1.40.0 in the go_modules group across 1 directory",
+			want:  "go.opentelemetry.io/otel/sdk",
+		},
+		{
+			name:  "dependabot bump npm scoped package",
+			title: "chore(deps-dev): bump @types/node from 25.0.3 to 25.0.9 in /backend",
+			want:  "@types/node",
 		},
 		// Dependabot: "Bump the X group"
 		{
@@ -133,11 +204,38 @@ func TestExtractDependencyName(t *testing.T) {
 			title: "Bump the npm-production group with 2 updates",
 			want:  "npm-production",
 		},
+		{
+			name:  "dependabot bump group with conventional commit",
+			title: "chore(deps): bump the npm_and_yarn group across 1 directory with 3 updates",
+			want:  "npm_and_yarn",
+		},
 		// Dependabot: "Bump X to Y"
 		{
 			name:  "dependabot bump to",
 			title: "Bump actions/checkout to v4",
 			want:  "actions/checkout",
+		},
+		// Renovate onboarding
+		{
+			name:  "configure renovate",
+			title: "Configure Renovate",
+			want:  "Configure Renovate",
+		},
+		// Dependabot onboarding
+		{
+			name:  "dependabot set package ecosystem gomod",
+			title: "Set package ecosystem to 'gomod' in dependabot config",
+			want:  "gomod",
+		},
+		{
+			name:  "dependabot set package-ecosystem gomod",
+			title: "Set package-ecosystem to 'gomod' in dependabot.yml",
+			want:  "gomod",
+		},
+		{
+			name:  "dependabot set package ecosystem cargo",
+			title: "Set package ecosystem to 'cargo' in dependabot config",
+			want:  "cargo",
 		},
 		// Edge cases
 		{
@@ -162,6 +260,64 @@ func TestExtractDependencyName(t *testing.T) {
 			got := ExtractDependencyName(tt.title)
 			if got != tt.want {
 				t.Errorf("ExtractDependencyName(%q) = %q, want %q", tt.title, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestExtractVersion(t *testing.T) {
+	tests := []struct {
+		name  string
+		title string
+		want  string
+	}{
+		{
+			name:  "from to version range",
+			title: "Bump lodash from 4.17.20 to 4.17.21",
+			want:  "4.17.20 -> 4.17.21",
+		},
+		{
+			name:  "from to with v prefix",
+			title: "Bump k8s.io/apimachinery from v0.33.3 to v0.35.2",
+			want:  "v0.33.3 -> v0.35.2",
+		},
+		{
+			name:  "to version at end",
+			title: "Update module github.com/spf13/cobra to v1.10.2",
+			want:  "v1.10.2",
+		},
+		{
+			name:  "to version with major annotation",
+			title: "chore(deps): update eslint monorepo to v10 (major)",
+			want:  "v10",
+		},
+		{
+			name:  "conventional commit prefix with from to",
+			title: "build(deps): bump go.opentelemetry.io/otel/sdk from 1.39.0 to 1.40.0 in the go_modules group across 1 directory",
+			want:  "1.39.0 -> 1.40.0",
+		},
+		{
+			name:  "rust crate with conventional commit",
+			title: "fix(deps): update rust crate kube to v3",
+			want:  "v3",
+		},
+		{
+			name:  "no version",
+			title: "fix(deps): update opentelemetry-go monorepo",
+			want:  "",
+		},
+		{
+			name:  "no version group update",
+			title: "fix(deps): update all non-major dependencies",
+			want:  "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ExtractVersion(tt.title)
+			if got != tt.want {
+				t.Errorf("ExtractVersion(%q) = %q, want %q", tt.title, got, tt.want)
 			}
 		})
 	}
@@ -224,6 +380,17 @@ func TestIsDependencyUpdateTitle(t *testing.T) {
 		{
 			name:  "bump group",
 			title: "Bump the go-deps group across 3 directories with 5 updates",
+			want:  true,
+		},
+		// Onboarding PRs
+		{
+			name:  "configure renovate",
+			title: "Configure Renovate",
+			want:  true,
+		},
+		{
+			name:  "dependabot set package ecosystem",
+			title: "Set package ecosystem to 'gomod' in dependabot config",
 			want:  true,
 		},
 		// Non-dependency PRs
