@@ -22,6 +22,7 @@ func init() {
 	runCmd.Flags().BoolVarP(&runOpts.Watch, "watch", "w", false, "Keep polling for new PRs (every 60s)")
 	runCmd.Flags().StringVar(&runOpts.Grouping, "grouping", "repo", "Group by \"repo\" or \"dependency\"")
 	runCmd.Flags().StringVar(&runOpts.Author, "author", "all", "Filter by PR author: \"renovate\", \"dependabot\", or \"all\"")
+	runCmd.Flags().StringVar(&runOpts.Org, "org", "", "Limit to repos owned by this org or user")
 	runCmd.Flags().BoolVar(&runOpts.NoTUI, "no-tui", false, "Disable live table, print plain-text results instead")
 	runCmd.Flags().StringVar(&runOpts.TrustedAuthors, "trusted-authors", "renovate[bot],dependabot[bot]", "Comma-separated list of trusted PR author logins")
 
@@ -62,6 +63,16 @@ optionally group them interactively, then approve and merge them.`,
 			prs, err := searchPRs(ctx, client, query, login, runOpts.Author)
 			if err != nil {
 				return fmt.Errorf("searching PRs: %w", err)
+			}
+
+			if runOpts.Org != "" {
+				filtered := prs[:0]
+				for _, p := range prs {
+					if strings.EqualFold(p.Owner, runOpts.Org) {
+						filtered = append(filtered, p)
+					}
+				}
+				prs = filtered
 			}
 
 			opts := runOpts

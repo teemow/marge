@@ -71,6 +71,7 @@ When run with a query (e.g. a repo name or dependency), it filters PRs directly 
 | `--watch` | `-w` | `false` | Keep polling for new PRs every 60 seconds |
 | `--grouping` | | `repo` | Group by `repo` or `dependency` |
 | `--author` | | `all` | Filter by PR author: `renovate`, `dependabot`, or `all` |
+| `--org` | | | Limit to repos owned by this org or user |
 | `--no-tui` | | `false` | Disable the live table; print plain-text results instead |
 | `--trusted-authors` | | `renovate[bot],dependabot[bot]` | Comma-separated list of trusted PR author logins |
 
