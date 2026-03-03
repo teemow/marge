@@ -17,13 +17,14 @@ const (
 )
 
 type Processor struct {
-	Client *github.Client
-	DryRun bool
-	Login  string
+	Client         *github.Client
+	DryRun         bool
+	MergeAutoMerge bool
+	Login          string
 }
 
-func NewProcessor(client *github.Client, dryRun bool, login string) *Processor {
-	return &Processor{Client: client, DryRun: dryRun, Login: login}
+func NewProcessor(client *github.Client, dryRun bool, mergeAutoMerge bool, login string) *Processor {
+	return &Processor{Client: client, DryRun: dryRun, MergeAutoMerge: mergeAutoMerge, Login: login}
 }
 
 func (p *Processor) ProcessPR(ctx context.Context, info pr.PRInfo, status *pr.PRStatus, idx int) {
@@ -61,7 +62,7 @@ func (p *Processor) ProcessPR(ctx context.Context, info pr.PRInfo, status *pr.PR
 		}
 	}
 
-	if pullReq.GetAutoMerge() != nil {
+	if pullReq.GetAutoMerge() != nil && !p.MergeAutoMerge {
 		status.Update(idx, pr.StatusAutoMerge, "auto-merge enabled")
 		return
 	}
