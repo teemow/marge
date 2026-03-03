@@ -183,6 +183,19 @@ func printPlainEntry(w *os.File, e StatusEntry) {
 		e.PR.Number, e.PR.Owner, e.PR.Repo, dep, verStr, e.PR.Author, detail)
 }
 
+// AdjustColumnWidths widens each column so every value fits without truncation.
+func AdjustColumnWidths(cols []TableColumn, prs []PRInfo) {
+	for i, c := range cols {
+		w := len(c.Label)
+		for _, p := range prs {
+			if v := len(c.Fn(p)); v > w {
+				w = v
+			}
+		}
+		cols[i].Width = w
+	}
+}
+
 func truncate(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s

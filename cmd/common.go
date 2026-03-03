@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -35,6 +36,15 @@ func processOnce(ctx context.Context, client *github.Client, login string, prs [
 
 	fmt.Fprintf(os.Stderr, "Processing %d PR(s)...\n\n", len(prs))
 
+	sort.Slice(prs, func(i, j int) bool {
+		ri := prs[i].Owner + "/" + prs[i].Repo
+		rj := prs[j].Owner + "/" + prs[j].Repo
+		if ri != rj {
+			return ri < rj
+		}
+		return prs[i].Number < prs[j].Number
+	})
+
 	status := pr.NewPRStatus()
 	indices := make([]int, len(prs))
 	for i, p := range prs {
@@ -45,6 +55,7 @@ func processOnce(ctx context.Context, client *github.Client, login string, prs [
 	if cols == nil {
 		cols = pr.FullColumns()
 	}
+	pr.AdjustColumnWidths(cols, prs)
 
 	if !opts.NoTUI {
 		pr.PrintTableHeader(os.Stdout, cols)
