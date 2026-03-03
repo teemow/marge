@@ -335,9 +335,10 @@ func interactiveSelect(prs []pr.PRInfo) ([]pr.PRInfo, bool, error) {
 	}
 
 	items := make([]string, 0, len(groups)+1)
-	items = append(items, fmt.Sprintf("All (%d PRs) [%s]", len(prs), strings.Join(uniqueAuthors(prs), ", ")))
+	items = append(items, fmt.Sprintf("All (%d PRs)", len(prs)))
 	for _, g := range groups {
-		items = append(items, formatGroupItem(g, grouping))
+		authors := uniqueAuthors(g.PRs)
+		items = append(items, fmt.Sprintf("%s (%d PRs) [%s]", g.Key, g.Count, strings.Join(authors, ", ")))
 	}
 
 	prompt := promptui.Select{
@@ -356,48 +357,6 @@ func interactiveSelect(prs []pr.PRInfo) ([]pr.PRInfo, bool, error) {
 	}
 
 	return groups[idx-1].PRs, true, nil
-}
-
-func formatGroupItem(g pr.PRGroup, mode string) string {
-	authors := uniqueAuthors(g.PRs)
-
-	var details []string
-	switch mode {
-	case "dependency":
-		for _, p := range g.PRs {
-			repo := fmt.Sprintf("%s/%s", p.Owner, p.Repo)
-			ver := pr.ExtractVersion(p.Title)
-			if ver != "" {
-				details = append(details, repo+" "+ver)
-			} else {
-				details = append(details, repo)
-			}
-		}
-	default:
-		for _, p := range g.PRs {
-			dep := pr.ExtractDependencyName(p.Title)
-			if dep == "" {
-				continue
-			}
-			ver := pr.ExtractVersion(p.Title)
-			if ver != "" {
-				details = append(details, dep+" "+ver)
-			} else {
-				details = append(details, dep)
-			}
-		}
-	}
-
-	base := fmt.Sprintf("%s (%d PRs)", g.Key, g.Count)
-	detailStr := ""
-	if len(details) > 0 {
-		detailStr = strings.Join(details, ", ")
-		if len(detailStr) > 60 {
-			detailStr = detailStr[:57] + "..."
-		}
-		detailStr = " " + detailStr
-	}
-	return fmt.Sprintf("%s%s [%s]", base, detailStr, strings.Join(authors, ", "))
 }
 
 func parseTrustedAuthors(csv string) map[string]bool {
