@@ -1,6 +1,20 @@
-# marge
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="assets/logo-light.png">
+    <img alt="marge" src="assets/logo-light.png" height="160">
+  </picture>
+</p>
+<h1 align="center">marge</h1>
+<p align="center">
+  A housekeeping tool for dependency update PRs.<br>
+  Automates the approve-and-merge workflow for
+  <a href="https://docs.renovatebot.com/">Renovate</a> and
+  <a href="https://docs.github.com/en/code-security/dependabot">Dependabot</a>
+  pull requests that request your review.
+</p>
 
-A housekeeping tool for dependency update PRs. Marge automates the approve-and-merge workflow for [Renovate](https://docs.renovatebot.com/) and [Dependabot](https://docs.github.com/en/code-security/dependabot) pull requests that request your review.
+---
 
 It searches GitHub for open bot PRs, groups them interactively, waits for CI checks to pass, approves, and merges them -- with a live terminal table showing progress.
 
