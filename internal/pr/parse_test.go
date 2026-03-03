@@ -237,6 +237,43 @@ func TestExtractDependencyName(t *testing.T) {
 			title: "Set package ecosystem to 'cargo' in dependabot config",
 			want:  "cargo",
 		},
+		// Renovate: grouped update without version
+		{
+			name:  "renovate grouped update major",
+			title: "Update github-actions (major)",
+			want:  "github-actions",
+		},
+		{
+			name:  "renovate grouped update minor",
+			title: "Update npm (minor)",
+			want:  "npm",
+		},
+		{
+			name:  "renovate grouped update patch",
+			title: "Update docker (patch)",
+			want:  "docker",
+		},
+		{
+			name:  "renovate grouped update digest",
+			title: "Update github-actions (digest)",
+			want:  "github-actions",
+		},
+		// Conventional commit prefix without deps scope
+		{
+			name:  "chore prefix configure renovate",
+			title: "chore: Configure Renovate",
+			want:  "Configure Renovate",
+		},
+		{
+			name:  "build prefix bump",
+			title: "build: Bump lodash from 4.17.20 to 4.17.21",
+			want:  "lodash",
+		},
+		{
+			name:  "chore(ci) prefix configure renovate",
+			title: "chore(ci): Configure Renovate",
+			want:  "Configure Renovate",
+		},
 		// Edge cases
 		{
 			name:  "empty title",
@@ -391,6 +428,23 @@ func TestIsDependencyUpdateTitle(t *testing.T) {
 		{
 			name:  "dependabot set package ecosystem",
 			title: "Set package ecosystem to 'gomod' in dependabot config",
+			want:  true,
+		},
+		// Renovate grouped updates
+		{
+			name:  "renovate grouped update major",
+			title: "Update github-actions (major)",
+			want:  true,
+		},
+		{
+			name:  "renovate grouped update minor",
+			title: "Update npm (minor)",
+			want:  true,
+		},
+		// Conventional commit prefix without deps scope
+		{
+			name:  "chore prefix configure renovate",
+			title: "chore: Configure Renovate",
 			want:  true,
 		},
 		// Non-dependency PRs

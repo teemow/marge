@@ -16,7 +16,7 @@ func ExtractOwnerRepo(htmlURL string) (string, string, error) {
 	return parts[0], parts[1], nil
 }
 
-var conventionalCommitPrefixRE = regexp.MustCompile(`(?i)^\w+\([^)]*deps[^)]*\):\s*`)
+var conventionalCommitPrefixRE = regexp.MustCompile(`(?i)^\w+(\([^)]*\))?:\s*`)
 
 func stripConventionalCommitPrefix(title string) string {
 	return conventionalCommitPrefixRE.ReplaceAllString(title, "")
@@ -45,6 +45,8 @@ var dependencyPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)^(lock file maintenance)$`),
 	// Renovate: "Update foo/bar to v1.2.3" (generic fallback, must be after specific patterns)
 	regexp.MustCompile(`(?i)^update ([@\w\-./]+(?:/[@\w\-./]+)*) to `),
+	// Renovate: grouped update "Update github-actions (major)" or "Update npm (minor)"
+	regexp.MustCompile(`(?i)^update ([@\w\-./]+(?:/[@\w\-./]+)*)\s+\((?:major|minor|patch|digest)\)\s*$`),
 	// Dependabot: "Bump foo from 1.2.3 to 1.2.4"
 	regexp.MustCompile(`(?i)bump ([@\w\-./]+(?:/[@\w\-./]+)*) from`),
 	// Dependabot: "Bump the foo group ..."
