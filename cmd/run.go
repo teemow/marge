@@ -102,8 +102,7 @@ func runOnce(ctx context.Context, client *github.Client, query string) error {
 		return nil
 	}
 
-	infoLabel := "Repository"
-	infoFn := pr.InfoFunc(pr.RepoInfoFunc)
+	cols := pr.FullColumns()
 
 	// Interactive mode: if no query provided, let user pick a group
 	if query == "" {
@@ -113,9 +112,13 @@ func runOnce(ctx context.Context, client *github.Client, query string) error {
 		}
 		prs = selected
 
-		if specificGroup && grouping == "repo" {
-			infoLabel = "Dependency"
-			infoFn = pr.DependencyInfoFunc
+		if specificGroup {
+			switch grouping {
+			case "repo":
+				cols = pr.RepoSelectedColumns()
+			case "dependency":
+				cols = pr.DependencySelectedColumns()
+			}
 		}
 	}
 
@@ -133,9 +136,9 @@ func runOnce(ctx context.Context, client *github.Client, query string) error {
 	}
 
 	if !noTUI {
-		pr.PrintTableHeader(os.Stdout, infoLabel)
+		pr.PrintTableHeader(os.Stdout, cols)
 		for _, e := range status.Snapshot() {
-			pr.PrintRow(os.Stdout, e, infoFn)
+			pr.PrintRow(os.Stdout, e, cols)
 		}
 	}
 
@@ -153,7 +156,7 @@ func runOnce(ctx context.Context, client *github.Client, query string) error {
 				case <-stopRefresh:
 					return
 				case <-ticker.C:
-					pr.UpdateTable(os.Stdout, status.Snapshot(), infoLabel, infoFn)
+					pr.UpdateTable(os.Stdout, status.Snapshot(), cols)
 				}
 			}
 		}()
@@ -184,7 +187,7 @@ func runOnce(ctx context.Context, client *github.Client, query string) error {
 	if noTUI {
 		pr.PrintPlainResults(os.Stdout, status)
 	} else {
-		pr.UpdateTable(os.Stdout, status.Snapshot(), infoLabel, infoFn)
+		pr.UpdateTable(os.Stdout, status.Snapshot(), cols)
 	}
 
 	fmt.Fprintf(os.Stderr, "\n%s\n", status.FormatSummary())
@@ -331,12 +334,10 @@ func interactiveSelect(prs []pr.PRInfo) ([]pr.PRInfo, bool, error) {
 		groups = pr.GroupByRepo(prs)
 	}
 
-	// Add an "All" option at the top
 	items := make([]string, 0, len(groups)+1)
-	items = append(items, fmt.Sprintf("All (%d PRs)", len(prs)))
+	items = append(items, fmt.Sprintf("All (%d PRs) [%s]", len(prs), strings.Join(uniqueAuthors(prs), ", ")))
 	for _, g := range groups {
-		authors := uniqueAuthors(g.PRs)
-		items = append(items, fmt.Sprintf("%s (%d PRs) [%s]", g.Key, g.Count, strings.Join(authors, ", ")))
+		items = append(items, formatGroupItem(g, grouping))
 	}
 
 	prompt := promptui.Select{
@@ -355,6 +356,48 @@ func interactiveSelect(prs []pr.PRInfo) ([]pr.PRInfo, bool, error) {
 	}
 
 	return groups[idx-1].PRs, true, nil
+}
+
+func formatGroupItem(g pr.PRGroup, mode string) string {
+	authors := uniqueAuthors(g.PRs)
+
+	var details []string
+	switch mode {
+	case "dependency":
+		for _, p := range g.PRs {
+			repo := fmt.Sprintf("%s/%s", p.Owner, p.Repo)
+			ver := pr.ExtractVersion(p.Title)
+			if ver != "" {
+				details = append(details, repo+" "+ver)
+			} else {
+				details = append(details, repo)
+			}
+		}
+	default:
+		for _, p := range g.PRs {
+			dep := pr.ExtractDependencyName(p.Title)
+			if dep == "" {
+				continue
+			}
+			ver := pr.ExtractVersion(p.Title)
+			if ver != "" {
+				details = append(details, dep+" "+ver)
+			} else {
+				details = append(details, dep)
+			}
+		}
+	}
+
+	base := fmt.Sprintf("%s (%d PRs)", g.Key, g.Count)
+	detailStr := ""
+	if len(details) > 0 {
+		detailStr = strings.Join(details, ", ")
+		if len(detailStr) > 60 {
+			detailStr = detailStr[:57] + "..."
+		}
+		detailStr = " " + detailStr
+	}
+	return fmt.Sprintf("%s%s [%s]", base, detailStr, strings.Join(authors, ", "))
 }
 
 func parseTrustedAuthors(csv string) map[string]bool {

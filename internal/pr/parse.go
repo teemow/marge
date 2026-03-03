@@ -56,6 +56,27 @@ func IsDependencyUpdateTitle(title string) bool {
 	return ExtractDependencyName(title) != ""
 }
 
+var versionPatterns = []*regexp.Regexp{
+	// "from vX.Y.Z to vA.B.C" – captures both source and target
+	regexp.MustCompile(`(?i)\bfrom\s+(v?\d[\w.\-+]*)\s+to\s+(v?\d[\w.\-+]*)`),
+	// "to vX.Y.Z" at end of title (with optional parenthetical like "(major)")
+	regexp.MustCompile(`(?i)\bto\s+(v?\d[\w.\-+]*)(?:\s*\(.*\))?\s*$`),
+}
+
+func ExtractVersion(title string) string {
+	title = strings.TrimSpace(title)
+	for _, pat := range versionPatterns {
+		matches := pat.FindStringSubmatch(title)
+		if len(matches) >= 3 {
+			return matches[1] + " -> " + matches[2]
+		}
+		if len(matches) >= 2 {
+			return matches[1]
+		}
+	}
+	return ""
+}
+
 func ExtractDependencyName(title string) string {
 	title = strings.TrimSpace(title)
 	for _, pat := range dependencyPatterns {

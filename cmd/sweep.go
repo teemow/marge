@@ -117,13 +117,12 @@ func sweepOnce(ctx context.Context, client *github.Client) error {
 		indices[i] = status.Add(p)
 	}
 
-	infoLabel := "Repository"
-	infoFn := pr.InfoFunc(pr.RepoInfoFunc)
+	cols := pr.FullColumns()
 
 	if !sweepNoTUI {
-		pr.PrintTableHeader(os.Stdout, infoLabel)
+		pr.PrintTableHeader(os.Stdout, cols)
 		for _, e := range status.Snapshot() {
-			pr.PrintRow(os.Stdout, e, infoFn)
+			pr.PrintRow(os.Stdout, e, cols)
 		}
 	}
 
@@ -141,7 +140,7 @@ func sweepOnce(ctx context.Context, client *github.Client) error {
 				case <-stopRefresh:
 					return
 				case <-ticker.C:
-					pr.UpdateTable(os.Stdout, status.Snapshot(), infoLabel, infoFn)
+					pr.UpdateTable(os.Stdout, status.Snapshot(), cols)
 				}
 			}
 		}()
@@ -172,7 +171,7 @@ func sweepOnce(ctx context.Context, client *github.Client) error {
 	if sweepNoTUI {
 		pr.PrintPlainResults(os.Stdout, status)
 	} else {
-		pr.UpdateTable(os.Stdout, status.Snapshot(), infoLabel, infoFn)
+		pr.UpdateTable(os.Stdout, status.Snapshot(), cols)
 	}
 
 	fmt.Fprintf(os.Stderr, "\n%s\n", status.FormatSummary())

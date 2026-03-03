@@ -30,15 +30,21 @@ type Processor struct {
 }
 
 func NewProcessor(client *github.Client, dryRun bool, mergeAutoMerge bool, login string, trustedAuthors map[string]bool) *Processor {
-	if trustedAuthors == nil {
-		trustedAuthors = DefaultTrustedAuthors
+	src := trustedAuthors
+	if src == nil {
+		src = DefaultTrustedAuthors
 	}
+	merged := make(map[string]bool, len(src)+1)
+	for k, v := range src {
+		merged[k] = v
+	}
+	merged[login] = true
 	return &Processor{
 		Client:         client,
 		DryRun:         dryRun,
 		MergeAutoMerge: mergeAutoMerge,
 		Login:          login,
-		TrustedAuthors: trustedAuthors,
+		TrustedAuthors: merged,
 	}
 }
 
