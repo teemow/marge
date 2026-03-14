@@ -92,7 +92,7 @@ func TestIsAuthorTrusted_selfCaseInsensitive(t *testing.T) {
 
 func TestDefaultTrustedAuthors(t *testing.T) {
 	expected := map[string]bool{
-		"renovate[bot]":  true,
+		"renovate[bot]":   true,
 		"dependabot[bot]": true,
 	}
 

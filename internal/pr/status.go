@@ -12,6 +12,7 @@ const (
 	StatusChecking
 	StatusApproving
 	StatusMerging
+	StatusRetrying
 	StatusMerged
 	StatusAlreadyMerged
 	StatusAutoMerge
@@ -31,6 +32,8 @@ func (s StatusState) String() string {
 		return "Approving"
 	case StatusMerging:
 		return "Merging"
+	case StatusRetrying:
+		return "Retrying merge"
 	case StatusMerged:
 		return "Merged"
 	case StatusAlreadyMerged:
