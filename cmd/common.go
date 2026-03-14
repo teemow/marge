@@ -89,17 +89,33 @@ func processOnce(ctx context.Context, client *github.Client, login string, prs [
 
 	proc := process.NewProcessor(client, opts.DryRun, opts.MergeAuto, login, parseTrustedAuthors(opts.TrustedAuthors))
 
+	// Build a per-repo index so we can look up each PR's status table index.
+	indexByPR := make(map[string]int, len(prs))
+	for i, p := range prs {
+		key := fmt.Sprintf("%s/%s#%d", p.Owner, p.Repo, p.Number)
+		indexByPR[key] = indices[i]
+	}
+
+	// Group PRs by owner/repo. PRs within the same repo are processed
+	// sequentially to avoid "base branch was modified" failures. Different
+	// repo groups run in parallel, bounded by the semaphore.
+	repoGroups := pr.GroupByRepo(prs)
+
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 5)
 
-	for i, p := range prs {
+	for _, group := range repoGroups {
 		wg.Add(1)
-		go func(info pr.PRInfo, idx int) {
+		go func(repoPRs []pr.PRInfo) {
 			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-			proc.ProcessPR(ctx, info, status, idx)
-		}(p, indices[i])
+			for _, info := range repoPRs {
+				sem <- struct{}{}
+				key := fmt.Sprintf("%s/%s#%d", info.Owner, info.Repo, info.Number)
+				idx := indexByPR[key]
+				proc.ProcessPR(ctx, info, status, idx)
+				<-sem
+			}
+		}(group.PRs)
 	}
 
 	wg.Wait()

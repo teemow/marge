@@ -14,10 +14,13 @@ import (
 const (
 	checkPollInterval = 15 * time.Second
 	checkPollTimeout  = 5 * time.Minute
+
+	mergeMaxRetries    = 3
+	mergeRetryBaseWait = 10 * time.Second
 )
 
 var DefaultTrustedAuthors = map[string]bool{
-	"renovate[bot]":  true,
+	"renovate[bot]":   true,
 	"dependabot[bot]": true,
 }
 
@@ -27,6 +30,13 @@ type Processor struct {
 	MergeAutoMerge bool
 	Login          string
 	TrustedAuthors map[string]bool
+
+	// MergeMaxRetries is the maximum number of merge attempts when the base
+	// branch is modified between fetch and merge. Zero uses the default (3).
+	MergeMaxRetries int
+	// MergeRetryWait is the base wait duration between merge retries.
+	// Zero uses the default (10s). Actual wait = base * attempt number.
+	MergeRetryWait time.Duration
 }
 
 func NewProcessor(client *github.Client, dryRun bool, mergeAutoMerge bool, login string, trustedAuthors map[string]bool) *Processor {
@@ -94,7 +104,7 @@ func (p *Processor) ProcessPR(ctx context.Context, info pr.PRInfo, status *pr.PR
 		return
 	}
 
-	p.merge(ctx, info, pullReq, status, idx)
+	p.merge(ctx, info, status, idx)
 }
 
 func (p *Processor) waitForChecks(ctx context.Context, info pr.PRInfo, status *pr.PRStatus, idx int) error {
@@ -203,23 +213,88 @@ func (p *Processor) approve(ctx context.Context, info pr.PRInfo, status *pr.PRSt
 	return nil
 }
 
-func (p *Processor) merge(ctx context.Context, info pr.PRInfo, pullReq *github.PullRequest, status *pr.PRStatus, idx int) {
-	status.Update(idx, pr.StatusMerging, "")
-
-	_, _, err := p.Client.PullRequests.Merge(ctx, info.Owner, info.Repo, info.Number, "", &github.PullRequestOptions{
-		MergeMethod: "squash",
-	})
-	if err != nil {
-		errMsg := err.Error()
-		if strings.Contains(errMsg, "409") || strings.Contains(errMsg, "conflict") {
-			status.Update(idx, pr.StatusConflict, "merge conflict")
-		} else {
-			status.Update(idx, pr.StatusFailed, ghErrorDetail("merge error", err))
-		}
-		return
+// isBaseBranchModified returns true when the merge failed because the base
+// branch SHA changed (e.g. another PR was just merged into the same branch).
+// These errors are retryable -- re-fetching the PR and retrying usually works.
+func isBaseBranchModified(err error) bool {
+	if err == nil {
+		return false
 	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "base branch was modified")
+}
 
-	status.Update(idx, pr.StatusMerged, "squash")
+func (p *Processor) mergeRetries() int {
+	if p.MergeMaxRetries > 0 {
+		return p.MergeMaxRetries
+	}
+	return mergeMaxRetries
+}
+
+func (p *Processor) mergeWait() time.Duration {
+	if p.MergeRetryWait > 0 {
+		return p.MergeRetryWait
+	}
+	return mergeRetryBaseWait
+}
+
+func (p *Processor) merge(ctx context.Context, info pr.PRInfo, status *pr.PRStatus, idx int) {
+	maxRetries := p.mergeRetries()
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		if attempt == 1 {
+			status.Update(idx, pr.StatusMerging, "")
+		} else {
+			status.Update(idx, pr.StatusRetrying, fmt.Sprintf("attempt %d/%d", attempt, maxRetries))
+		}
+
+		_, _, err := p.Client.PullRequests.Merge(ctx, info.Owner, info.Repo, info.Number, "", &github.PullRequestOptions{
+			MergeMethod: "squash",
+		})
+		if err == nil {
+			status.Update(idx, pr.StatusMerged, "squash")
+			return
+		}
+
+		if !isBaseBranchModified(err) {
+			// Permanent error -- do not retry.
+			errMsg := err.Error()
+			if strings.Contains(errMsg, "409") || strings.Contains(errMsg, "conflict") {
+				status.Update(idx, pr.StatusConflict, "merge conflict")
+			} else {
+				status.Update(idx, pr.StatusFailed, ghErrorDetail("merge error", err))
+			}
+			return
+		}
+
+		if attempt == maxRetries {
+			status.Update(idx, pr.StatusFailed, fmt.Sprintf("base branch modified after %d attempts", maxRetries))
+			return
+		}
+
+		// Wait with linear backoff before retrying.
+		wait := p.mergeWait() * time.Duration(attempt)
+		select {
+		case <-ctx.Done():
+			status.Update(idx, pr.StatusSkipped, "cancelled")
+			return
+		case <-time.After(wait):
+		}
+
+		// Re-fetch the PR to confirm it is still open and mergeable.
+		refreshed, _, fetchErr := p.Client.PullRequests.Get(ctx, info.Owner, info.Repo, info.Number)
+		if fetchErr != nil {
+			status.Update(idx, pr.StatusFailed, ghErrorDetail("retry fetch error", fetchErr))
+			return
+		}
+		if refreshed.GetMerged() {
+			status.Update(idx, pr.StatusAlreadyMerged, "merged between retries")
+			return
+		}
+		if refreshed.GetMergeableState() == "dirty" {
+			status.Update(idx, pr.StatusConflict, "merge conflict on retry")
+			return
+		}
+	}
 }
 
 func (p *Processor) isAuthorTrusted(login string) bool {
