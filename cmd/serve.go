@@ -218,12 +218,16 @@ func createTempReposFile(repos []string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
 
 	for _, repo := range repos {
 		if _, err := fmt.Fprintln(f, repo); err != nil {
+			f.Close()
 			return "", err
 		}
+	}
+
+	if err := f.Close(); err != nil {
+		return "", err
 	}
 
 	return f.Name(), nil
