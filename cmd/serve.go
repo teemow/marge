@@ -221,7 +221,7 @@ func createTempReposFile(repos []string) (string, error) {
 
 	for _, repo := range repos {
 		if _, err := fmt.Fprintln(f, repo); err != nil {
-			f.Close()
+			_ = f.Close()
 			return "", err
 		}
 	}
