@@ -30,9 +30,14 @@ type RunOptions struct {
 }
 
 func processOnce(ctx context.Context, client *github.Client, login string, prs []pr.PRInfo, opts RunOptions) error {
+	_, err := processOnceWithStatus(ctx, client, login, prs, opts)
+	return err
+}
+
+func processOnceWithStatus(ctx context.Context, client *github.Client, login string, prs []pr.PRInfo, opts RunOptions) (*pr.PRStatus, error) {
 	if len(prs) == 0 {
 		fmt.Fprintln(os.Stderr, "No matching PRs found.")
-		return nil
+		return pr.NewPRStatus(), nil
 	}
 
 	fmt.Fprintf(os.Stderr, "Processing %d PR(s)...\n\n", len(prs))
@@ -135,7 +140,7 @@ func processOnce(ctx context.Context, client *github.Client, login string, prs [
 		opts.OnComplete(status)
 	}
 
-	return nil
+	return status, nil
 }
 
 func watchLoop(ctx context.Context, watch bool, fn func(ctx context.Context) error) error {
