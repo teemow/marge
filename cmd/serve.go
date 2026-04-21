@@ -68,10 +68,10 @@ returning structured JSON results instead of terminal output.`,
 
 // SweepResult is the structured JSON output returned by the sweep MCP tool.
 type SweepResult struct {
-	Summary        SweepSummary    `json:"summary"`
-	Merged         []SweepPREntry  `json:"merged,omitempty"`
-	ActionRequired []SweepPREntry  `json:"action_required,omitempty"`
-	Skipped        []SweepPREntry  `json:"skipped,omitempty"`
+	Summary        SweepSummary   `json:"summary"`
+	Merged         []SweepPREntry `json:"merged,omitempty"`
+	ActionRequired []SweepPREntry `json:"action_required,omitempty"`
+	Skipped        []SweepPREntry `json:"skipped,omitempty"`
 }
 
 // SweepSummary contains aggregate counts from the sweep.
