@@ -1,12 +1,12 @@
 module github.com/teemow/marge
 
-go 1.25.0
+go 1.25.5
 
 require (
 	github.com/creativeprojects/go-selfupdate v1.5.2
 	github.com/google/go-github/v85 v85.0.0
 	github.com/manifoldco/promptui v0.9.0
-	github.com/mark3labs/mcp-go v0.48.0
+	github.com/mark3labs/mcp-go v0.49.0
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/oauth2 v0.36.0
 )
