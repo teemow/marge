@@ -7,6 +7,13 @@ import "strings"
 // name matches one of these patterns fails, the PR is reported with a
 // distinct status so downstream tooling (and humans) do not treat it as
 // ordinary build/test flakiness.
+//
+// Patterns are validated against real-world check-run names observed in
+// production workflows (e.g. aquasecurity/trivy's "Scan Go vulnerabilities"
+// matches via "vulnerabilities"). Some scanners use generic job names like
+// the official github/codeql-action template's "Analyze (go)" -- the
+// "codeql" substring will not catch that, so CodeQL users who rely on the
+// default job name should extend this list via --security-patterns.
 var DefaultSecurityCheckPatterns = []string{
 	"security scan",
 	"security",
@@ -15,6 +22,10 @@ var DefaultSecurityCheckPatterns = []string{
 	"codeql",
 	"snyk",
 	"gosec",
+	"gitleaks",
+	"semgrep",
+	"checkov",
+	"kics",
 	"vulnerability",
 	"vulnerabilities",
 	"sast",

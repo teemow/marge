@@ -74,7 +74,7 @@ When run with a query (e.g. a repo name or dependency), it filters PRs directly 
 | `--org` | | | Limit to repos owned by this org or user |
 | `--no-tui` | | `false` | Disable the live table; print plain-text results instead |
 | `--trusted-authors` | | `renovate[bot],dependabot[bot]` | Comma-separated list of trusted PR author logins |
-| `--security-patterns` | | _(built-in)_ | Comma-separated case-insensitive substrings used to flag failing CI checks as security-related (e.g. `Trivy,Govulncheck,CodeQL`). When set, overrides the built-in list |
+| `--security-patterns` | | _(built-in)_ | Comma-separated case-insensitive substrings used to flag failing CI checks as security-related (e.g. `Trivy,Govulncheck,CodeQL`). When set, overrides the built-in list. The built-in list covers `govulncheck`, `trivy`, `codeql`, `snyk`, `gosec`, `gitleaks`, `semgrep`, `checkov`, `kics`, `vulnerability/vulnerabilities`, `sast`, `dast`, `dependency-review`, and any check whose name contains `security`. If your CodeQL job is named `Analyze (<lang>)` (the github/codeql-action template default), add `Analyze` to this flag so it gets caught. |
 
 ### `marge sweep [flags]`
 

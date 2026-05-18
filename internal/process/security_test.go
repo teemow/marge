@@ -104,6 +104,40 @@ func TestProcessorSecurityPatterns_emptyDisablesClassification(t *testing.T) {
 	}
 }
 
+// TestClassifySecurityFailure_realWorldNames feeds actual check-run names
+// observed in production GitHub Actions workflows through the classifier.
+// Names captured from live API responses on 2026-05-18:
+//   - aquasecurity/trivy:    "Scan Go vulnerabilities"
+//   - golang/vuln (CodeQL):  "Analyze (go)"
+//   - teemow/inboxfewer:     "gitleaks", "Lint and Test", "build-and-push"
+//   - teemow/stammbaum:      "backend"
+func TestClassifySecurityFailure_realWorldNames(t *testing.T) {
+	tests := []struct {
+		name         string
+		checkName    string
+		wantSecurity bool
+	}{
+		{"aquasecurity trivy scan", "Scan Go vulnerabilities", true},
+		{"gitleaks default", "gitleaks", true},
+		{"CodeQL default job name", "Analyze (go)", false}, // documents the known gap
+		{"build failure", "Lint and Test", false},
+		{"docker build", "build-and-push", false},
+		{"generic backend job", "backend", false},
+		{"go test job", "Test (macos-latest)", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := classifySecurityFailure([]string{tt.checkName}, DefaultSecurityCheckPatterns)
+			if tt.wantSecurity && got == "" {
+				t.Errorf("expected %q to be classified as security, but it was not", tt.checkName)
+			}
+			if !tt.wantSecurity && got != "" {
+				t.Errorf("expected %q NOT to be classified as security, but it was (matched as %q)", tt.checkName, got)
+			}
+		})
+	}
+}
+
 func TestFailureDetail(t *testing.T) {
 	tests := []struct {
 		name         string
