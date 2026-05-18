@@ -114,6 +114,23 @@ func UpdateTable(w *os.File, entries []StatusEntry, cols []TableColumn) {
 	}
 }
 
+// DisableLineWrap turns off the terminal's auto-wrap (DECAWM) so rows
+// wider than the terminal are clipped at the right edge instead of
+// wrapping onto a second physical line. UpdateTable's cursor-up math
+// counts logical rows, so a wrapped row would desync the redraw and
+// produce the garbled output users see when CI detail strings push a
+// line past the terminal width.
+func DisableLineWrap(w *os.File) {
+	_, _ = fmt.Fprint(w, "\033[?7l")
+}
+
+// EnableLineWrap restores the terminal's auto-wrap mode. Always pair it
+// with DisableLineWrap (typically via defer) so an early return does
+// not leave the user's terminal in a clipped state.
+func EnableLineWrap(w *os.File) {
+	_, _ = fmt.Fprint(w, "\033[?7h")
+}
+
 func ColorizeStatus(state StatusState, detail string) string {
 	label := state.String()
 	if detail != "" {
@@ -123,6 +140,10 @@ func ColorizeStatus(state StatusState, detail string) string {
 	switch state {
 	case StatusMerged, StatusAlreadyMerged, StatusAutoMerge:
 		return fmt.Sprintf("\033[32m%s\033[0m", label) // green
+	case StatusFailedSecurity:
+		// Bold + bright red so security failures pop out compared to the
+		// regular red used for ordinary failures.
+		return fmt.Sprintf("\033[1;91m%s\033[0m", label)
 	case StatusFailed, StatusConflict, StatusUntrustedAuthor:
 		return fmt.Sprintf("\033[31m%s\033[0m", label) // red
 	case StatusSkipped:
@@ -136,7 +157,7 @@ func ColorizeStatus(state StatusState, detail string) string {
 
 func PrintPlainResults(w *os.File, status *PRStatus) {
 	merged := status.MergedEntries()
-	failed := status.ActionRequired()
+	securityFailed, otherFailed := SplitActionRequired(status.ActionRequired())
 	skipped := status.SkippedEntries()
 
 	if len(merged) > 0 {
@@ -147,14 +168,8 @@ func PrintPlainResults(w *os.File, status *PRStatus) {
 		_, _ = fmt.Fprintln(w)
 	}
 
-	if len(failed) > 0 {
-		_, _ = fmt.Fprintf(w, "Failed (%d):\n", len(failed))
-		for _, e := range failed {
-			printPlainEntry(w, e)
-			_, _ = fmt.Fprintf(w, "         %s\n", e.PR.URL)
-		}
-		_, _ = fmt.Fprintln(w)
-	}
+	printFailureGroup(w, "Security failures", securityFailed)
+	printFailureGroup(w, "Failed", otherFailed)
 
 	if len(skipped) > 0 {
 		_, _ = fmt.Fprintf(w, "Skipped (%d):\n", len(skipped))
@@ -163,6 +178,20 @@ func PrintPlainResults(w *os.File, status *PRStatus) {
 		}
 		_, _ = fmt.Fprintln(w)
 	}
+}
+
+// printFailureGroup writes a header and one entry per failure including its
+// PR URL on a continuation line. It is a no-op when entries is empty.
+func printFailureGroup(w *os.File, header string, entries []StatusEntry) {
+	if len(entries) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "%s (%d):\n", header, len(entries))
+	for _, e := range entries {
+		printPlainEntry(w, e)
+		_, _ = fmt.Fprintf(w, "         %s\n", e.PR.URL)
+	}
+	_, _ = fmt.Fprintln(w)
 }
 
 func printPlainEntry(w *os.File, e StatusEntry) {

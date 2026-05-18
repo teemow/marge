@@ -16,22 +16,18 @@ import (
 
 // RunOptions holds the configuration shared between the run and sweep commands.
 type RunOptions struct {
-	DryRun         bool
-	Watch          bool
-	NoTUI          bool
-	Author         string
-	TrustedAuthors string
-	MergeAuto      bool
-	Org            string
-	ReposFile      string
-	Grouping       string
-	Cols           []pr.TableColumn
-	OnComplete     func(*pr.PRStatus)
-}
-
-func processOnce(ctx context.Context, client *github.Client, login string, prs []pr.PRInfo, opts RunOptions) error {
-	_, err := processOnceWithStatus(ctx, client, login, prs, opts)
-	return err
+	DryRun           bool
+	Watch            bool
+	NoTUI            bool
+	Author           string
+	TrustedAuthors   string
+	MergeAuto        bool
+	Org              string
+	ReposFile        string
+	Grouping         string
+	SecurityPatterns string
+	Cols             []pr.TableColumn
+	OnComplete       func(*pr.PRStatus)
 }
 
 func processOnceWithStatus(ctx context.Context, client *github.Client, login string, prs []pr.PRInfo, opts RunOptions) (*pr.PRStatus, error) {
@@ -64,6 +60,9 @@ func processOnceWithStatus(ctx context.Context, client *github.Client, login str
 	pr.AdjustColumnWidths(cols, prs)
 
 	if !opts.NoTUI {
+		pr.DisableLineWrap(os.Stdout)
+		defer pr.EnableLineWrap(os.Stdout)
+
 		pr.PrintTableHeader(os.Stdout, cols)
 		for _, e := range status.Snapshot() {
 			pr.PrintRow(os.Stdout, e, cols)
@@ -93,6 +92,7 @@ func processOnceWithStatus(ctx context.Context, client *github.Client, login str
 	}
 
 	proc := process.NewProcessor(client, opts.DryRun, opts.MergeAuto, login, parseTrustedAuthors(opts.TrustedAuthors))
+	proc.SecurityCheckPatterns = parseCSVList(opts.SecurityPatterns)
 
 	// Build a per-repo index so we can look up each PR's status table index.
 	indexByPR := make(map[string]int, len(prs))
@@ -132,6 +132,10 @@ func processOnceWithStatus(ctx context.Context, client *github.Client, login str
 		pr.PrintPlainResults(os.Stdout, status)
 	} else {
 		pr.UpdateTable(os.Stdout, status.Snapshot(), cols)
+		// Restore wrapping before any post-table prose so long lines
+		// (e.g. failure URLs in the summary) are not clipped by the
+		// disabled-wrap mode that protected the table redraws.
+		pr.EnableLineWrap(os.Stdout)
 	}
 
 	fmt.Fprintf(os.Stderr, "\n%s\n", status.FormatSummary())
@@ -163,13 +167,28 @@ func watchLoop(ctx context.Context, watch bool, fn func(ctx context.Context) err
 	}
 }
 
-func parseTrustedAuthors(csv string) map[string]bool {
-	m := make(map[string]bool)
-	for _, a := range strings.Split(csv, ",") {
-		a = strings.TrimSpace(a)
-		if a != "" {
-			m[a] = true
+// parseCSVList splits a comma-separated string into trimmed, non-empty
+// entries. It returns nil when the input has no usable entries so callers
+// can distinguish "user did not configure this" from "user configured an
+// explicit list".
+func parseCSVList(csv string) []string {
+	if strings.TrimSpace(csv) == "" {
+		return nil
+	}
+	var out []string
+	for _, p := range strings.Split(csv, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
 		}
+	}
+	return out
+}
+
+func parseTrustedAuthors(csv string) map[string]bool {
+	entries := parseCSVList(csv)
+	m := make(map[string]bool, len(entries))
+	for _, a := range entries {
+		m[a] = true
 	}
 	return m
 }

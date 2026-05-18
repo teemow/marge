@@ -31,6 +31,12 @@ type Processor struct {
 	Login          string
 	TrustedAuthors map[string]bool
 
+	// SecurityCheckPatterns is the list of case-insensitive substrings used
+	// to flag failing CI checks as security-related (e.g. govulncheck, Trivy,
+	// CodeQL). A nil slice falls back to DefaultSecurityCheckPatterns; a
+	// non-nil empty slice disables security classification entirely.
+	SecurityCheckPatterns []string
+
 	// MergeMaxRetries is the maximum number of merge attempts when the base
 	// branch is modified between fetch and merge. Zero uses the default (3).
 	MergeMaxRetries int
@@ -110,7 +116,7 @@ func (p *Processor) ProcessPR(ctx context.Context, info pr.PRInfo, status *pr.PR
 func (p *Processor) waitForChecks(ctx context.Context, info pr.PRInfo, status *pr.PRStatus, idx int) error {
 	deadline := time.After(checkPollTimeout)
 	for {
-		state, err := p.getCombinedCheckState(ctx, info)
+		state, failedChecks, err := p.getCombinedCheckState(ctx, info)
 		if err != nil {
 			status.Update(idx, pr.StatusFailed, ghErrorDetail("check error", err))
 			return err
@@ -120,7 +126,11 @@ func (p *Processor) waitForChecks(ctx context.Context, info pr.PRInfo, status *p
 		case "success":
 			return nil
 		case "failure", "error":
-			status.Update(idx, pr.StatusFailed, "checks failed")
+			if name := classifySecurityFailure(failedChecks, p.securityPatterns()); name != "" {
+				status.Update(idx, pr.StatusFailedSecurity, fmt.Sprintf("security check failed: %s", name))
+			} else {
+				status.Update(idx, pr.StatusFailed, failureDetail(failedChecks))
+			}
 			return fmt.Errorf("checks failed")
 		}
 
@@ -138,10 +148,10 @@ func (p *Processor) waitForChecks(ctx context.Context, info pr.PRInfo, status *p
 	}
 }
 
-func (p *Processor) getCombinedCheckState(ctx context.Context, info pr.PRInfo) (string, error) {
+func (p *Processor) getCombinedCheckState(ctx context.Context, info pr.PRInfo) (string, []string, error) {
 	combined, _, err := p.Client.Repositories.GetCombinedStatus(ctx, info.Owner, info.Repo, fmt.Sprintf("refs/pull/%d/head", info.Number), nil)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	combinedState := combined.GetState()
@@ -149,14 +159,15 @@ func (p *Processor) getCombinedCheckState(ctx context.Context, info pr.PRInfo) (
 	// Also check check-runs (GitHub Actions use check runs, not commit statuses)
 	checkRuns, _, err := p.Client.Checks.ListCheckRunsForRef(ctx, info.Owner, info.Repo, fmt.Sprintf("refs/pull/%d/head", info.Number), nil)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	if checkRuns.GetTotal() == 0 && len(combined.Statuses) == 0 {
 		// No checks configured -- treat as success
-		return "success", nil
+		return "success", nil, nil
 	}
 
+	var failedChecks []string
 	allComplete := true
 	hasFailure := false
 	for _, cr := range checkRuns.CheckRuns {
@@ -167,23 +178,58 @@ func (p *Processor) getCombinedCheckState(ctx context.Context, info pr.PRInfo) (
 		conclusion := cr.GetConclusion()
 		if conclusion == "failure" || conclusion == "timed_out" || conclusion == "cancelled" {
 			hasFailure = true
+			if name := cr.GetName(); name != "" {
+				failedChecks = append(failedChecks, name)
+			}
+		}
+	}
+
+	for _, s := range combined.Statuses {
+		state := s.GetState()
+		if state == "failure" || state == "error" {
+			if name := s.GetContext(); name != "" {
+				failedChecks = append(failedChecks, name)
+			}
 		}
 	}
 
 	if hasFailure {
-		return "failure", nil
+		return "failure", failedChecks, nil
 	}
 	if !allComplete {
-		return "pending", nil
+		return "pending", nil, nil
 	}
 	if combinedState == "failure" || combinedState == "error" {
-		return combinedState, nil
+		return combinedState, failedChecks, nil
 	}
 	if combinedState == "pending" && len(combined.Statuses) > 0 {
-		return "pending", nil
+		return "pending", nil, nil
 	}
 
-	return "success", nil
+	return "success", nil, nil
+}
+
+// securityPatterns returns the normalized security-check pattern list to
+// use for classification: nil SecurityCheckPatterns falls back to the
+// built-in defaults; a non-nil empty slice disables classification.
+func (p *Processor) securityPatterns() []string {
+	if p.SecurityCheckPatterns == nil {
+		return normalizePatterns(defaultSecurityCheckPatterns)
+	}
+	return normalizePatterns(p.SecurityCheckPatterns)
+}
+
+// failureDetail builds a human-readable detail string for a non-security
+// check failure, naming the failing checks when available.
+func failureDetail(failedChecks []string) string {
+	if len(failedChecks) == 0 {
+		return "checks failed"
+	}
+	const maxShow = 3
+	if len(failedChecks) <= maxShow {
+		return fmt.Sprintf("checks failed: %s", strings.Join(failedChecks, ", "))
+	}
+	return fmt.Sprintf("checks failed: %s (+%d more)", strings.Join(failedChecks[:maxShow], ", "), len(failedChecks)-maxShow)
 }
 
 func (p *Processor) approve(ctx context.Context, info pr.PRInfo, status *pr.PRStatus, idx int) error {

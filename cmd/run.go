@@ -28,6 +28,7 @@ func init() {
 	runCmd.Flags().BoolVar(&runOpts.NoTUI, "no-tui", false, "Disable live table, print plain-text results instead")
 	runCmd.Flags().BoolVar(&runOpts.MergeAuto, "merge-auto", false, "Also merge PRs that have auto-merge enabled")
 	runCmd.Flags().StringVar(&runOpts.TrustedAuthors, "trusted-authors", "renovate[bot],dependabot[bot]", "Comma-separated list of trusted PR author logins")
+	runCmd.Flags().StringVar(&runOpts.SecurityPatterns, "security-patterns", "", "Comma-separated list of case-insensitive substrings used to flag failing CI checks as security-related (defaults to a built-in list)")
 
 	rootCmd.AddCommand(runCmd)
 
@@ -103,7 +104,8 @@ optionally group them interactively, then approve and merge them.`,
 				}
 			}
 
-			return processOnce(ctx, client, login, prs, opts)
+			_, err = processOnceWithStatus(ctx, client, login, prs, opts)
+			return err
 		})
 	},
 }

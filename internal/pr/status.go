@@ -17,6 +17,7 @@ const (
 	StatusAlreadyMerged
 	StatusAutoMerge
 	StatusFailed
+	StatusFailedSecurity
 	StatusSkipped
 	StatusConflict
 	StatusUntrustedAuthor
@@ -42,6 +43,8 @@ func (s StatusState) String() string {
 		return "Auto-merge"
 	case StatusFailed:
 		return "Failed"
+	case StatusFailedSecurity:
+		return "Failed (security)"
 	case StatusSkipped:
 		return "Skipped"
 	case StatusConflict:
@@ -103,7 +106,7 @@ func (s *PRStatus) Summary() (merged, failed, skipped int) {
 		switch e.State {
 		case StatusMerged, StatusAlreadyMerged, StatusAutoMerge:
 			merged++
-		case StatusFailed, StatusConflict, StatusUntrustedAuthor:
+		case StatusFailed, StatusFailedSecurity, StatusConflict, StatusUntrustedAuthor:
 			failed++
 		case StatusSkipped:
 			skipped++
@@ -126,7 +129,7 @@ func (s *PRStatus) FormatSummary() string {
 		switch e.State {
 		case StatusMerged, StatusAlreadyMerged, StatusAutoMerge:
 			merged++
-		case StatusFailed, StatusConflict, StatusUntrustedAuthor:
+		case StatusFailed, StatusFailedSecurity, StatusConflict, StatusUntrustedAuthor:
 			failed++
 		case StatusSkipped:
 			skipped++
@@ -142,11 +145,38 @@ func (s *PRStatus) ActionRequired() []StatusEntry {
 	var result []StatusEntry
 	for _, e := range s.entries {
 		switch e.State {
-		case StatusFailed, StatusConflict, StatusUntrustedAuthor:
+		case StatusFailed, StatusFailedSecurity, StatusConflict, StatusUntrustedAuthor:
 			result = append(result, e)
 		}
 	}
 	return result
+}
+
+// SecurityFailedEntries returns entries that failed specifically because a
+// security-related check reported a problem.
+func (s *PRStatus) SecurityFailedEntries() []StatusEntry {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var result []StatusEntry
+	for _, e := range s.entries {
+		if e.State == StatusFailedSecurity {
+			result = append(result, e)
+		}
+	}
+	return result
+}
+
+// SplitActionRequired partitions the action-required list into security
+// failures and everything else, preserving the input order in each group.
+func SplitActionRequired(entries []StatusEntry) (security, other []StatusEntry) {
+	for _, e := range entries {
+		if e.State == StatusFailedSecurity {
+			security = append(security, e)
+		} else {
+			other = append(other, e)
+		}
+	}
+	return
 }
 
 func (s *PRStatus) MergedEntries() []StatusEntry {
