@@ -70,41 +70,30 @@ that could not be merged so you can fix them manually.`,
 			opts := sweepOpts
 			if !opts.NoTUI {
 				opts.OnComplete = func(status *pr.PRStatus) {
-					actionRequired := status.ActionRequired()
-					if len(actionRequired) == 0 {
-						return
-					}
-
-					var securityFailed, otherFailed []pr.StatusEntry
-					for _, e := range actionRequired {
-						if e.State == pr.StatusFailedSecurity {
-							securityFailed = append(securityFailed, e)
-						} else {
-							otherFailed = append(otherFailed, e)
-						}
-					}
-
-					if len(securityFailed) > 0 {
-						fmt.Fprintf(os.Stderr, "\nSecurity failures (%d):\n\n", len(securityFailed))
-						for _, e := range securityFailed {
-							fmt.Fprintf(os.Stderr, "  #%-6d %s/%s\n", e.PR.Number, e.PR.Owner, e.PR.Repo)
-							fmt.Fprintf(os.Stderr, "         %s\n", e.PR.Title)
-							fmt.Fprintf(os.Stderr, "         %s  %s\n\n", e.PR.URL, pr.ColorizeStatus(e.State, e.Detail))
-						}
-					}
-
-					if len(otherFailed) > 0 {
-						fmt.Fprintf(os.Stderr, "\nAction required (%d):\n\n", len(otherFailed))
-						for _, e := range otherFailed {
-							fmt.Fprintf(os.Stderr, "  #%-6d %s/%s\n", e.PR.Number, e.PR.Owner, e.PR.Repo)
-							fmt.Fprintf(os.Stderr, "         %s\n", e.PR.Title)
-							fmt.Fprintf(os.Stderr, "         %s  %s\n\n", e.PR.URL, pr.ColorizeStatus(e.State, e.Detail))
-						}
-					}
+					security, other := pr.SplitActionRequired(status.ActionRequired())
+					printSweepFailures(os.Stderr, "Security failures", security)
+					printSweepFailures(os.Stderr, "Action required", other)
 				}
 			}
 
-			return processOnce(ctx, client, login, prs, opts)
+			_, err = processOnceWithStatus(ctx, client, login, prs, opts)
+			return err
 		})
 	},
+}
+
+// printSweepFailures emits a header and one stanza per failure entry,
+// formatted for the TUI summary that follows the live table. It is a
+// no-op for empty groups, so callers can pass either failure bucket
+// without guarding.
+func printSweepFailures(w *os.File, header string, entries []pr.StatusEntry) {
+	if len(entries) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "\n%s (%d):\n\n", header, len(entries))
+	for _, e := range entries {
+		_, _ = fmt.Fprintf(w, "  #%-6d %s/%s\n", e.PR.Number, e.PR.Owner, e.PR.Repo)
+		_, _ = fmt.Fprintf(w, "         %s\n", e.PR.Title)
+		_, _ = fmt.Fprintf(w, "         %s  %s\n\n", e.PR.URL, pr.ColorizeStatus(e.State, e.Detail))
+	}
 }

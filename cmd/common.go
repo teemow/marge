@@ -30,11 +30,6 @@ type RunOptions struct {
 	OnComplete       func(*pr.PRStatus)
 }
 
-func processOnce(ctx context.Context, client *github.Client, login string, prs []pr.PRInfo, opts RunOptions) error {
-	_, err := processOnceWithStatus(ctx, client, login, prs, opts)
-	return err
-}
-
 func processOnceWithStatus(ctx context.Context, client *github.Client, login string, prs []pr.PRInfo, opts RunOptions) (*pr.PRStatus, error) {
 	if len(prs) == 0 {
 		fmt.Fprintln(os.Stderr, "No matching PRs found.")
@@ -94,9 +89,7 @@ func processOnceWithStatus(ctx context.Context, client *github.Client, login str
 	}
 
 	proc := process.NewProcessor(client, opts.DryRun, opts.MergeAuto, login, parseTrustedAuthors(opts.TrustedAuthors))
-	if patterns, ok := parseSecurityPatterns(opts.SecurityPatterns); ok {
-		proc.SecurityCheckPatterns = patterns
-	}
+	proc.SecurityCheckPatterns = parseCSVList(opts.SecurityPatterns)
 
 	// Build a per-repo index so we can look up each PR's status table index.
 	indexByPR := make(map[string]int, len(prs))
@@ -167,30 +160,28 @@ func watchLoop(ctx context.Context, watch bool, fn func(ctx context.Context) err
 	}
 }
 
-func parseTrustedAuthors(csv string) map[string]bool {
-	m := make(map[string]bool)
-	for _, a := range strings.Split(csv, ",") {
-		a = strings.TrimSpace(a)
-		if a != "" {
-			m[a] = true
-		}
+// parseCSVList splits a comma-separated string into trimmed, non-empty
+// entries. It returns nil when the input has no usable entries so callers
+// can distinguish "user did not configure this" from "user configured an
+// explicit list".
+func parseCSVList(csv string) []string {
+	if strings.TrimSpace(csv) == "" {
+		return nil
 	}
-	return m
-}
-
-// parseSecurityPatterns splits a comma-separated list of security check
-// name patterns. The boolean return is false when the caller did not set
-// the flag (empty string), so the processor keeps its default list.
-func parseSecurityPatterns(csv string) ([]string, bool) {
-	csv = strings.TrimSpace(csv)
-	if csv == "" {
-		return nil, false
-	}
-	var patterns []string
+	var out []string
 	for _, p := range strings.Split(csv, ",") {
 		if p = strings.TrimSpace(p); p != "" {
-			patterns = append(patterns, p)
+			out = append(out, p)
 		}
 	}
-	return patterns, true
+	return out
+}
+
+func parseTrustedAuthors(csv string) map[string]bool {
+	entries := parseCSVList(csv)
+	m := make(map[string]bool, len(entries))
+	for _, a := range entries {
+		m[a] = true
+	}
+	return m
 }

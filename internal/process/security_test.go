@@ -3,6 +3,8 @@ package process
 import "testing"
 
 func TestClassifySecurityFailure_defaults(t *testing.T) {
+	defaults := normalizePatterns(DefaultSecurityCheckPatterns())
+
 	tests := []struct {
 		name          string
 		failedChecks  []string
@@ -47,7 +49,7 @@ func TestClassifySecurityFailure_defaults(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := classifySecurityFailure(tt.failedChecks, DefaultSecurityCheckPatterns)
+			got := classifySecurityFailure(tt.failedChecks, defaults)
 			if tt.wantNonEmpty && got == "" {
 				t.Errorf("classifySecurityFailure(%v) returned empty, want non-empty", tt.failedChecks)
 			}
@@ -62,7 +64,7 @@ func TestClassifySecurityFailure_defaults(t *testing.T) {
 }
 
 func TestClassifySecurityFailure_customPatterns(t *testing.T) {
-	patterns := []string{"my-custom-scan"}
+	patterns := normalizePatterns([]string{"my-custom-scan"})
 
 	if got := classifySecurityFailure([]string{"govulncheck"}, patterns); got != "" {
 		t.Errorf("govulncheck should not match custom patterns; got %q", got)
@@ -79,13 +81,29 @@ func TestClassifySecurityFailure_emptyPatternsDisableClassification(t *testing.T
 	}
 }
 
-func TestClassifySecurityFailure_ignoresBlankPatternEntries(t *testing.T) {
-	patterns := []string{"", "   ", "trivy"}
-	if got := classifySecurityFailure([]string{"build"}, patterns); got != "" {
-		t.Errorf("blank pattern entries must not match arbitrary check names; got %q", got)
+func TestNormalizePatterns_dropsBlankAndNormalizesCase(t *testing.T) {
+	got := normalizePatterns([]string{"", "  ", "Trivy", " GoVulnCheck "})
+	want := []string{"trivy", "govulncheck"}
+	if len(got) != len(want) {
+		t.Fatalf("normalizePatterns len = %d, want %d (got %v)", len(got), len(want), got)
 	}
-	if got := classifySecurityFailure([]string{"Trivy"}, patterns); got == "" {
-		t.Errorf("expected non-blank pattern to still match")
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("normalizePatterns[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestDefaultSecurityCheckPatterns_returnsCopy(t *testing.T) {
+	a := DefaultSecurityCheckPatterns()
+	if len(a) == 0 {
+		t.Fatal("expected non-empty default patterns")
+	}
+	a[0] = "MUTATED"
+
+	b := DefaultSecurityCheckPatterns()
+	if b[0] == "MUTATED" {
+		t.Fatal("DefaultSecurityCheckPatterns must return an independent copy")
 	}
 }
 
@@ -112,6 +130,8 @@ func TestProcessorSecurityPatterns_emptyDisablesClassification(t *testing.T) {
 //   - teemow/inboxfewer:     "gitleaks", "Lint and Test", "build-and-push"
 //   - teemow/stammbaum:      "backend"
 func TestClassifySecurityFailure_realWorldNames(t *testing.T) {
+	defaults := normalizePatterns(DefaultSecurityCheckPatterns())
+
 	tests := []struct {
 		name         string
 		checkName    string
@@ -127,7 +147,7 @@ func TestClassifySecurityFailure_realWorldNames(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := classifySecurityFailure([]string{tt.checkName}, DefaultSecurityCheckPatterns)
+			got := classifySecurityFailure([]string{tt.checkName}, defaults)
 			if tt.wantSecurity && got == "" {
 				t.Errorf("expected %q to be classified as security, but it was not", tt.checkName)
 			}

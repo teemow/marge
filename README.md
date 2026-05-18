@@ -74,7 +74,15 @@ When run with a query (e.g. a repo name or dependency), it filters PRs directly 
 | `--org` | | | Limit to repos owned by this org or user |
 | `--no-tui` | | `false` | Disable the live table; print plain-text results instead |
 | `--trusted-authors` | | `renovate[bot],dependabot[bot]` | Comma-separated list of trusted PR author logins |
-| `--security-patterns` | | _(built-in)_ | Comma-separated case-insensitive substrings used to flag failing CI checks as security-related (e.g. `Trivy,Govulncheck,CodeQL`). When set, overrides the built-in list. The built-in list covers `govulncheck`, `trivy`, `codeql`, `snyk`, `gosec`, `gitleaks`, `semgrep`, `checkov`, `kics`, `vulnerability/vulnerabilities`, `sast`, `dast`, `dependency-review`, and any check whose name contains `security`. If your CodeQL job is named `Analyze (<lang>)` (the github/codeql-action template default), add `Analyze` to this flag so it gets caught. |
+| `--security-patterns` | | _(built-in)_ | Override the built-in security check pattern list (see below) |
+
+#### Security check patterns
+
+When a PR's CI fails, marge classifies the failure as security-related if any failing check's name contains one of the configured substrings (case-insensitive). Security failures are surfaced separately so they are not mistaken for ordinary build/test flakiness.
+
+The built-in list contains: `security`, `govulncheck`, `trivy`, `codeql`, `snyk`, `gosec`, `gitleaks`, `semgrep`, `checkov`, `kics`, `vulnerability`, `vulnerabilities`, `sast`, `dast`, `dependency-review`, `dependency review`.
+
+Pass `--security-patterns "Trivy,Govulncheck,CodeQL,Analyze"` to replace the list. The github/codeql-action template uses a job name like `Analyze (<lang>)` that the `codeql` substring will not match, so add `Analyze` if you rely on that template.
 
 ### `marge sweep [flags]`
 
@@ -89,7 +97,7 @@ Processes all matching PRs without interactive grouping. After processing, print
 | `--no-tui` | | `false` | Disable the live table; print plain-text results instead |
 | `--merge-auto` | | `false` | Also merge PRs that have auto-merge enabled (by default these are skipped) |
 | `--trusted-authors` | | `renovate[bot],dependabot[bot]` | Comma-separated list of trusted PR author logins |
-| `--security-patterns` | | _(built-in)_ | Comma-separated case-insensitive substrings used to flag failing CI checks as security-related (e.g. `Trivy,Govulncheck,CodeQL`). When set, overrides the built-in list |
+| `--security-patterns` | | _(built-in)_ | Override the built-in security check pattern list (see [Security check patterns](#security-check-patterns)) |
 
 ### Other commands
 

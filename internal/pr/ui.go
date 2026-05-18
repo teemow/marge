@@ -124,7 +124,8 @@ func ColorizeStatus(state StatusState, detail string) string {
 	case StatusMerged, StatusAlreadyMerged, StatusAutoMerge:
 		return fmt.Sprintf("\033[32m%s\033[0m", label) // green
 	case StatusFailedSecurity:
-		// Bold + red + reversed background to make security failures stand out.
+		// Bold + bright red so security failures pop out compared to the
+		// regular red used for ordinary failures.
 		return fmt.Sprintf("\033[1;91m%s\033[0m", label)
 	case StatusFailed, StatusConflict, StatusUntrustedAuthor:
 		return fmt.Sprintf("\033[31m%s\033[0m", label) // red
@@ -139,19 +140,8 @@ func ColorizeStatus(state StatusState, detail string) string {
 
 func PrintPlainResults(w *os.File, status *PRStatus) {
 	merged := status.MergedEntries()
-	actionRequired := status.ActionRequired()
+	securityFailed, otherFailed := SplitActionRequired(status.ActionRequired())
 	skipped := status.SkippedEntries()
-
-	// Split action-required entries into security failures and other failures
-	// so security issues are visually grouped and easy to spot.
-	var securityFailed, otherFailed []StatusEntry
-	for _, e := range actionRequired {
-		if e.State == StatusFailedSecurity {
-			securityFailed = append(securityFailed, e)
-		} else {
-			otherFailed = append(otherFailed, e)
-		}
-	}
 
 	if len(merged) > 0 {
 		_, _ = fmt.Fprintf(w, "Merged (%d):\n", len(merged))
@@ -161,23 +151,8 @@ func PrintPlainResults(w *os.File, status *PRStatus) {
 		_, _ = fmt.Fprintln(w)
 	}
 
-	if len(securityFailed) > 0 {
-		_, _ = fmt.Fprintf(w, "Security failures (%d):\n", len(securityFailed))
-		for _, e := range securityFailed {
-			printPlainEntry(w, e)
-			_, _ = fmt.Fprintf(w, "         %s\n", e.PR.URL)
-		}
-		_, _ = fmt.Fprintln(w)
-	}
-
-	if len(otherFailed) > 0 {
-		_, _ = fmt.Fprintf(w, "Failed (%d):\n", len(otherFailed))
-		for _, e := range otherFailed {
-			printPlainEntry(w, e)
-			_, _ = fmt.Fprintf(w, "         %s\n", e.PR.URL)
-		}
-		_, _ = fmt.Fprintln(w)
-	}
+	printFailureGroup(w, "Security failures", securityFailed)
+	printFailureGroup(w, "Failed", otherFailed)
 
 	if len(skipped) > 0 {
 		_, _ = fmt.Fprintf(w, "Skipped (%d):\n", len(skipped))
@@ -186,6 +161,20 @@ func PrintPlainResults(w *os.File, status *PRStatus) {
 		}
 		_, _ = fmt.Fprintln(w)
 	}
+}
+
+// printFailureGroup writes a header and one entry per failure including its
+// PR URL on a continuation line. It is a no-op when entries is empty.
+func printFailureGroup(w *os.File, header string, entries []StatusEntry) {
+	if len(entries) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "%s (%d):\n", header, len(entries))
+	for _, e := range entries {
+		printPlainEntry(w, e)
+		_, _ = fmt.Fprintf(w, "         %s\n", e.PR.URL)
+	}
+	_, _ = fmt.Fprintln(w)
 }
 
 func printPlainEntry(w *os.File, e StatusEntry) {

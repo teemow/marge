@@ -79,6 +79,11 @@ type SweepResult struct {
 }
 
 // SweepSummary contains aggregate counts from the sweep.
+//
+// Failed and SecurityFailures are disjoint: Failed counts only the
+// non-security failure entries, so consumers can use
+// Failed + SecurityFailures to get the total number of action-required
+// PRs without double-counting.
 type SweepSummary struct {
 	Total            int `json:"total"`
 	Merged           int `json:"merged"`
@@ -177,7 +182,7 @@ func buildSweepResult(status *pr.PRStatus) SweepResult {
 		Summary: SweepSummary{
 			Total:            total,
 			Merged:           merged,
-			Failed:           failed,
+			Failed:           failed - len(securityEntries),
 			SecurityFailures: len(securityEntries),
 			Skipped:          skipped,
 		},

@@ -2,7 +2,7 @@ package process
 
 import "strings"
 
-// DefaultSecurityCheckPatterns is the default list of case-insensitive
+// defaultSecurityCheckPatterns is the built-in list of case-insensitive
 // substrings that mark a CI check as security-relevant. When a check whose
 // name matches one of these patterns fails, the PR is reported with a
 // distinct status so downstream tooling (and humans) do not treat it as
@@ -14,8 +14,7 @@ import "strings"
 // the official github/codeql-action template's "Analyze (go)" -- the
 // "codeql" substring will not catch that, so CodeQL users who rely on the
 // default job name should extend this list via --security-patterns.
-var DefaultSecurityCheckPatterns = []string{
-	"security scan",
+var defaultSecurityCheckPatterns = []string{
 	"security",
 	"govulncheck",
 	"trivy",
@@ -34,9 +33,33 @@ var DefaultSecurityCheckPatterns = []string{
 	"dependency review",
 }
 
+// DefaultSecurityCheckPatterns returns a fresh copy of the built-in
+// security-check pattern list. Returning a copy guarantees that callers
+// cannot accidentally mutate the package-level default.
+func DefaultSecurityCheckPatterns() []string {
+	out := make([]string, len(defaultSecurityCheckPatterns))
+	copy(out, defaultSecurityCheckPatterns)
+	return out
+}
+
+// normalizePatterns lower-cases and trims each entry, dropping empties.
+// Returning a normalized slice once lets the hot loop in
+// classifySecurityFailure use a plain strings.Contains.
+func normalizePatterns(patterns []string) []string {
+	out := make([]string, 0, len(patterns))
+	for _, p := range patterns {
+		p = strings.TrimSpace(strings.ToLower(p))
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 // classifySecurityFailure returns the name of the first failing check that
 // matches any of the configured security patterns, or "" if none match.
-// Matching is case-insensitive substring match against the check name.
+// Patterns must already be normalized (see normalizePatterns); matching is
+// a case-insensitive substring match against the check name.
 func classifySecurityFailure(failedChecks []string, patterns []string) string {
 	if len(failedChecks) == 0 || len(patterns) == 0 {
 		return ""
@@ -44,10 +67,6 @@ func classifySecurityFailure(failedChecks []string, patterns []string) string {
 	for _, name := range failedChecks {
 		lower := strings.ToLower(name)
 		for _, p := range patterns {
-			p = strings.TrimSpace(strings.ToLower(p))
-			if p == "" {
-				continue
-			}
 			if strings.Contains(lower, p) {
 				return name
 			}

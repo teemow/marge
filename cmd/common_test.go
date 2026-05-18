@@ -5,28 +5,25 @@ import (
 	"testing"
 )
 
-func TestParseSecurityPatterns(t *testing.T) {
+func TestParseCSVList(t *testing.T) {
 	tests := []struct {
-		name    string
-		input   string
-		want    []string
-		wantSet bool
+		name  string
+		input string
+		want  []string
 	}{
-		{"empty string is unset", "", nil, false},
-		{"whitespace only is unset", "   ", nil, false},
-		{"single pattern", "trivy", []string{"trivy"}, true},
-		{"multiple patterns", "Trivy, govulncheck ,CodeQL", []string{"Trivy", "govulncheck", "CodeQL"}, true},
-		{"empty entries are skipped", "trivy,,gosec, ", []string{"trivy", "gosec"}, true},
+		{"empty string is nil", "", nil},
+		{"whitespace only is nil", "   ", nil},
+		{"single pattern", "trivy", []string{"trivy"}},
+		{"multiple patterns", "Trivy, govulncheck ,CodeQL", []string{"Trivy", "govulncheck", "CodeQL"}},
+		{"empty entries are skipped", "trivy,,gosec, ", []string{"trivy", "gosec"}},
+		{"only separators yields nil", ",, ,", nil},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, ok := parseSecurityPatterns(tt.input)
-			if ok != tt.wantSet {
-				t.Errorf("parseSecurityPatterns(%q) ok=%v, want %v", tt.input, ok, tt.wantSet)
-			}
+			got := parseCSVList(tt.input)
 			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("parseSecurityPatterns(%q) = %v, want %v", tt.input, got, tt.want)
+				t.Errorf("parseCSVList(%q) = %v, want %v", tt.input, got, tt.want)
 			}
 		})
 	}

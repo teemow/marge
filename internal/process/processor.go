@@ -33,8 +33,8 @@ type Processor struct {
 
 	// SecurityCheckPatterns is the list of case-insensitive substrings used
 	// to flag failing CI checks as security-related (e.g. govulncheck, Trivy,
-	// CodeQL). Nil uses DefaultSecurityCheckPatterns. Set to a non-nil empty
-	// slice to disable security classification.
+	// CodeQL). A nil slice falls back to DefaultSecurityCheckPatterns; a
+	// non-nil empty slice disables security classification entirely.
 	SecurityCheckPatterns []string
 
 	// MergeMaxRetries is the maximum number of merge attempts when the base
@@ -187,8 +187,8 @@ func (p *Processor) getCombinedCheckState(ctx context.Context, info pr.PRInfo) (
 	for _, s := range combined.Statuses {
 		state := s.GetState()
 		if state == "failure" || state == "error" {
-			if ctx := s.GetContext(); ctx != "" {
-				failedChecks = append(failedChecks, ctx)
+			if name := s.GetContext(); name != "" {
+				failedChecks = append(failedChecks, name)
 			}
 		}
 	}
@@ -209,11 +209,14 @@ func (p *Processor) getCombinedCheckState(ctx context.Context, info pr.PRInfo) (
 	return "success", nil, nil
 }
 
+// securityPatterns returns the normalized security-check pattern list to
+// use for classification: nil SecurityCheckPatterns falls back to the
+// built-in defaults; a non-nil empty slice disables classification.
 func (p *Processor) securityPatterns() []string {
 	if p.SecurityCheckPatterns == nil {
-		return DefaultSecurityCheckPatterns
+		return normalizePatterns(defaultSecurityCheckPatterns)
 	}
-	return p.SecurityCheckPatterns
+	return normalizePatterns(p.SecurityCheckPatterns)
 }
 
 // failureDetail builds a human-readable detail string for a non-security

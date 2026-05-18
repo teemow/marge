@@ -166,6 +166,19 @@ func (s *PRStatus) SecurityFailedEntries() []StatusEntry {
 	return result
 }
 
+// SplitActionRequired partitions the action-required list into security
+// failures and everything else, preserving the input order in each group.
+func SplitActionRequired(entries []StatusEntry) (security, other []StatusEntry) {
+	for _, e := range entries {
+		if e.State == StatusFailedSecurity {
+			security = append(security, e)
+		} else {
+			other = append(other, e)
+		}
+	}
+	return
+}
+
 func (s *PRStatus) MergedEntries() []StatusEntry {
 	s.mu.Lock()
 	defer s.mu.Unlock()

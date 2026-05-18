@@ -104,7 +104,8 @@ optionally group them interactively, then approve and merge them.`,
 				}
 			}
 
-			return processOnce(ctx, client, login, prs, opts)
+			_, err = processOnceWithStatus(ctx, client, login, prs, opts)
+			return err
 		})
 	},
 }
