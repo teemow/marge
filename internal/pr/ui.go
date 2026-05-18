@@ -114,6 +114,23 @@ func UpdateTable(w *os.File, entries []StatusEntry, cols []TableColumn) {
 	}
 }
 
+// DisableLineWrap turns off the terminal's auto-wrap (DECAWM) so rows
+// wider than the terminal are clipped at the right edge instead of
+// wrapping onto a second physical line. UpdateTable's cursor-up math
+// counts logical rows, so a wrapped row would desync the redraw and
+// produce the garbled output users see when CI detail strings push a
+// line past the terminal width.
+func DisableLineWrap(w *os.File) {
+	_, _ = fmt.Fprint(w, "\033[?7l")
+}
+
+// EnableLineWrap restores the terminal's auto-wrap mode. Always pair it
+// with DisableLineWrap (typically via defer) so an early return does
+// not leave the user's terminal in a clipped state.
+func EnableLineWrap(w *os.File) {
+	_, _ = fmt.Fprint(w, "\033[?7h")
+}
+
 func ColorizeStatus(state StatusState, detail string) string {
 	label := state.String()
 	if detail != "" {

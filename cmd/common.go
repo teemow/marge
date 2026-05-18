@@ -60,6 +60,9 @@ func processOnceWithStatus(ctx context.Context, client *github.Client, login str
 	pr.AdjustColumnWidths(cols, prs)
 
 	if !opts.NoTUI {
+		pr.DisableLineWrap(os.Stdout)
+		defer pr.EnableLineWrap(os.Stdout)
+
 		pr.PrintTableHeader(os.Stdout, cols)
 		for _, e := range status.Snapshot() {
 			pr.PrintRow(os.Stdout, e, cols)
@@ -129,6 +132,10 @@ func processOnceWithStatus(ctx context.Context, client *github.Client, login str
 		pr.PrintPlainResults(os.Stdout, status)
 	} else {
 		pr.UpdateTable(os.Stdout, status.Snapshot(), cols)
+		// Restore wrapping before any post-table prose so long lines
+		// (e.g. failure URLs in the summary) are not clipped by the
+		// disabled-wrap mode that protected the table redraws.
+		pr.EnableLineWrap(os.Stdout)
 	}
 
 	fmt.Fprintf(os.Stderr, "\n%s\n", status.FormatSummary())
