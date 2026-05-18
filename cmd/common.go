@@ -16,17 +16,18 @@ import (
 
 // RunOptions holds the configuration shared between the run and sweep commands.
 type RunOptions struct {
-	DryRun         bool
-	Watch          bool
-	NoTUI          bool
-	Author         string
-	TrustedAuthors string
-	MergeAuto      bool
-	Org            string
-	ReposFile      string
-	Grouping       string
-	Cols           []pr.TableColumn
-	OnComplete     func(*pr.PRStatus)
+	DryRun           bool
+	Watch            bool
+	NoTUI            bool
+	Author           string
+	TrustedAuthors   string
+	MergeAuto        bool
+	Org              string
+	ReposFile        string
+	Grouping         string
+	SecurityPatterns string
+	Cols             []pr.TableColumn
+	OnComplete       func(*pr.PRStatus)
 }
 
 func processOnce(ctx context.Context, client *github.Client, login string, prs []pr.PRInfo, opts RunOptions) error {
@@ -93,6 +94,9 @@ func processOnceWithStatus(ctx context.Context, client *github.Client, login str
 	}
 
 	proc := process.NewProcessor(client, opts.DryRun, opts.MergeAuto, login, parseTrustedAuthors(opts.TrustedAuthors))
+	if patterns, ok := parseSecurityPatterns(opts.SecurityPatterns); ok {
+		proc.SecurityCheckPatterns = patterns
+	}
 
 	// Build a per-repo index so we can look up each PR's status table index.
 	indexByPR := make(map[string]int, len(prs))
@@ -172,4 +176,21 @@ func parseTrustedAuthors(csv string) map[string]bool {
 		}
 	}
 	return m
+}
+
+// parseSecurityPatterns splits a comma-separated list of security check
+// name patterns. The boolean return is false when the caller did not set
+// the flag (empty string), so the processor keeps its default list.
+func parseSecurityPatterns(csv string) ([]string, bool) {
+	csv = strings.TrimSpace(csv)
+	if csv == "" {
+		return nil, false
+	}
+	var patterns []string
+	for _, p := range strings.Split(csv, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			patterns = append(patterns, p)
+		}
+	}
+	return patterns, true
 }

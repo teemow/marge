@@ -58,6 +58,9 @@ returning structured JSON results instead of terminal output.`,
 				mcp.WithString("trusted_authors",
 					mcp.Description("Comma-separated list of trusted PR author logins (default: \"renovate[bot],dependabot[bot]\")"),
 				),
+				mcp.WithString("security_patterns",
+					mcp.Description("Comma-separated list of case-insensitive substrings used to flag failing CI checks as security-related (defaults to a built-in list)"),
+				),
 			),
 			handleSweep,
 		)
@@ -68,18 +71,20 @@ returning structured JSON results instead of terminal output.`,
 
 // SweepResult is the structured JSON output returned by the sweep MCP tool.
 type SweepResult struct {
-	Summary        SweepSummary   `json:"summary"`
-	Merged         []SweepPREntry `json:"merged,omitempty"`
-	ActionRequired []SweepPREntry `json:"action_required,omitempty"`
-	Skipped        []SweepPREntry `json:"skipped,omitempty"`
+	Summary          SweepSummary   `json:"summary"`
+	Merged           []SweepPREntry `json:"merged,omitempty"`
+	SecurityFailures []SweepPREntry `json:"security_failures,omitempty"`
+	ActionRequired   []SweepPREntry `json:"action_required,omitempty"`
+	Skipped          []SweepPREntry `json:"skipped,omitempty"`
 }
 
 // SweepSummary contains aggregate counts from the sweep.
 type SweepSummary struct {
-	Total   int `json:"total"`
-	Merged  int `json:"merged"`
-	Failed  int `json:"failed"`
-	Skipped int `json:"skipped"`
+	Total            int `json:"total"`
+	Merged           int `json:"merged"`
+	Failed           int `json:"failed"`
+	SecurityFailures int `json:"security_failures"`
+	Skipped          int `json:"skipped"`
 }
 
 // SweepPREntry represents a single PR in the sweep results.
@@ -101,6 +106,7 @@ func handleSweep(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToo
 	dryRun := request.GetBool("dry_run", false)
 	author := request.GetString("author", "all")
 	trustedAuthors := request.GetString("trusted_authors", "renovate[bot],dependabot[bot]")
+	securityPatterns := request.GetString("security_patterns", "")
 	reposParam := request.GetStringSlice("repos", nil)
 
 	// Create a temporary repos file if repos array was provided.
@@ -139,11 +145,12 @@ func handleSweep(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToo
 	}
 
 	opts := RunOptions{
-		DryRun:         dryRun,
-		MergeAuto:      mergeAuto,
-		NoTUI:          true,
-		Author:         author,
-		TrustedAuthors: trustedAuthors,
+		DryRun:           dryRun,
+		MergeAuto:        mergeAuto,
+		NoTUI:            true,
+		Author:           author,
+		TrustedAuthors:   trustedAuthors,
+		SecurityPatterns: securityPatterns,
 	}
 
 	status, err := processOnceWithStatus(ctx, client, login, prs, opts)
@@ -164,18 +171,20 @@ func handleSweep(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToo
 func buildSweepResult(status *pr.PRStatus) SweepResult {
 	merged, failed, skipped := status.Summary()
 	total := status.Len()
+	securityEntries := status.SecurityFailedEntries()
 
 	result := SweepResult{
 		Summary: SweepSummary{
-			Total:   total,
-			Merged:  merged,
-			Failed:  failed,
-			Skipped: skipped,
+			Total:            total,
+			Merged:           merged,
+			Failed:           failed,
+			SecurityFailures: len(securityEntries),
+			Skipped:          skipped,
 		},
 	}
 
-	for _, e := range status.MergedEntries() {
-		result.Merged = append(result.Merged, SweepPREntry{
+	toEntry := func(e pr.StatusEntry) SweepPREntry {
+		return SweepPREntry{
 			Owner:  e.PR.Owner,
 			Repo:   e.PR.Repo,
 			Number: e.PR.Number,
@@ -183,31 +192,26 @@ func buildSweepResult(status *pr.PRStatus) SweepResult {
 			URL:    e.PR.URL,
 			Status: e.State.String(),
 			Detail: e.Detail,
-		})
+		}
+	}
+
+	for _, e := range status.MergedEntries() {
+		result.Merged = append(result.Merged, toEntry(e))
+	}
+
+	for _, e := range securityEntries {
+		result.SecurityFailures = append(result.SecurityFailures, toEntry(e))
 	}
 
 	for _, e := range status.ActionRequired() {
-		result.ActionRequired = append(result.ActionRequired, SweepPREntry{
-			Owner:  e.PR.Owner,
-			Repo:   e.PR.Repo,
-			Number: e.PR.Number,
-			Title:  e.PR.Title,
-			URL:    e.PR.URL,
-			Status: e.State.String(),
-			Detail: e.Detail,
-		})
+		if e.State == pr.StatusFailedSecurity {
+			continue
+		}
+		result.ActionRequired = append(result.ActionRequired, toEntry(e))
 	}
 
 	for _, e := range status.SkippedEntries() {
-		result.Skipped = append(result.Skipped, SweepPREntry{
-			Owner:  e.PR.Owner,
-			Repo:   e.PR.Repo,
-			Number: e.PR.Number,
-			Title:  e.PR.Title,
-			URL:    e.PR.URL,
-			Status: e.State.String(),
-			Detail: e.Detail,
-		})
+		result.Skipped = append(result.Skipped, toEntry(e))
 	}
 
 	return result

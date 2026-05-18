@@ -123,6 +123,9 @@ func ColorizeStatus(state StatusState, detail string) string {
 	switch state {
 	case StatusMerged, StatusAlreadyMerged, StatusAutoMerge:
 		return fmt.Sprintf("\033[32m%s\033[0m", label) // green
+	case StatusFailedSecurity:
+		// Bold + red + reversed background to make security failures stand out.
+		return fmt.Sprintf("\033[1;91m%s\033[0m", label)
 	case StatusFailed, StatusConflict, StatusUntrustedAuthor:
 		return fmt.Sprintf("\033[31m%s\033[0m", label) // red
 	case StatusSkipped:
@@ -136,8 +139,19 @@ func ColorizeStatus(state StatusState, detail string) string {
 
 func PrintPlainResults(w *os.File, status *PRStatus) {
 	merged := status.MergedEntries()
-	failed := status.ActionRequired()
+	actionRequired := status.ActionRequired()
 	skipped := status.SkippedEntries()
+
+	// Split action-required entries into security failures and other failures
+	// so security issues are visually grouped and easy to spot.
+	var securityFailed, otherFailed []StatusEntry
+	for _, e := range actionRequired {
+		if e.State == StatusFailedSecurity {
+			securityFailed = append(securityFailed, e)
+		} else {
+			otherFailed = append(otherFailed, e)
+		}
+	}
 
 	if len(merged) > 0 {
 		_, _ = fmt.Fprintf(w, "Merged (%d):\n", len(merged))
@@ -147,9 +161,18 @@ func PrintPlainResults(w *os.File, status *PRStatus) {
 		_, _ = fmt.Fprintln(w)
 	}
 
-	if len(failed) > 0 {
-		_, _ = fmt.Fprintf(w, "Failed (%d):\n", len(failed))
-		for _, e := range failed {
+	if len(securityFailed) > 0 {
+		_, _ = fmt.Fprintf(w, "Security failures (%d):\n", len(securityFailed))
+		for _, e := range securityFailed {
+			printPlainEntry(w, e)
+			_, _ = fmt.Fprintf(w, "         %s\n", e.PR.URL)
+		}
+		_, _ = fmt.Fprintln(w)
+	}
+
+	if len(otherFailed) > 0 {
+		_, _ = fmt.Fprintf(w, "Failed (%d):\n", len(otherFailed))
+		for _, e := range otherFailed {
 			printPlainEntry(w, e)
 			_, _ = fmt.Fprintf(w, "         %s\n", e.PR.URL)
 		}

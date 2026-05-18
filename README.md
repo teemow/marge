@@ -74,10 +74,11 @@ When run with a query (e.g. a repo name or dependency), it filters PRs directly 
 | `--org` | | | Limit to repos owned by this org or user |
 | `--no-tui` | | `false` | Disable the live table; print plain-text results instead |
 | `--trusted-authors` | | `renovate[bot],dependabot[bot]` | Comma-separated list of trusted PR author logins |
+| `--security-patterns` | | _(built-in)_ | Comma-separated case-insensitive substrings used to flag failing CI checks as security-related (e.g. `Trivy,Govulncheck,CodeQL`). When set, overrides the built-in list |
 
 ### `marge sweep [flags]`
 
-Processes all matching PRs without interactive grouping. After processing, prints an **Action required** section listing any PRs that failed, have conflicts, or came from untrusted authors.
+Processes all matching PRs without interactive grouping. After processing, prints a **Security failures** section followed by an **Action required** section listing any PRs that failed, have conflicts, or came from untrusted authors. Security failures (e.g. govulncheck, Trivy, CodeQL) are separated so they are not mistaken for ordinary CI flakiness.
 
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
@@ -88,6 +89,7 @@ Processes all matching PRs without interactive grouping. After processing, print
 | `--no-tui` | | `false` | Disable the live table; print plain-text results instead |
 | `--merge-auto` | | `false` | Also merge PRs that have auto-merge enabled (by default these are skipped) |
 | `--trusted-authors` | | `renovate[bot],dependabot[bot]` | Comma-separated list of trusted PR author logins |
+| `--security-patterns` | | _(built-in)_ | Comma-separated case-insensitive substrings used to flag failing CI checks as security-related (e.g. `Trivy,Govulncheck,CodeQL`). When set, overrides the built-in list |
 
 ### Other commands
 

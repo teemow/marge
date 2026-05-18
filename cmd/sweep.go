@@ -24,6 +24,7 @@ func init() {
 	sweepCmd.Flags().BoolVar(&sweepOpts.NoTUI, "no-tui", false, "Disable live table, print plain-text results instead")
 	sweepCmd.Flags().BoolVar(&sweepOpts.MergeAuto, "merge-auto", false, "Also merge PRs that have auto-merge enabled")
 	sweepCmd.Flags().StringVar(&sweepOpts.TrustedAuthors, "trusted-authors", "renovate[bot],dependabot[bot]", "Comma-separated list of trusted PR author logins")
+	sweepCmd.Flags().StringVar(&sweepOpts.SecurityPatterns, "security-patterns", "", "Comma-separated list of case-insensitive substrings used to flag failing CI checks as security-related (defaults to a built-in list)")
 
 	rootCmd.AddCommand(sweepCmd)
 }
@@ -70,9 +71,31 @@ that could not be merged so you can fix them manually.`,
 			if !opts.NoTUI {
 				opts.OnComplete = func(status *pr.PRStatus) {
 					actionRequired := status.ActionRequired()
-					if len(actionRequired) > 0 {
-						fmt.Fprintf(os.Stderr, "\nAction required (%d):\n\n", len(actionRequired))
-						for _, e := range actionRequired {
+					if len(actionRequired) == 0 {
+						return
+					}
+
+					var securityFailed, otherFailed []pr.StatusEntry
+					for _, e := range actionRequired {
+						if e.State == pr.StatusFailedSecurity {
+							securityFailed = append(securityFailed, e)
+						} else {
+							otherFailed = append(otherFailed, e)
+						}
+					}
+
+					if len(securityFailed) > 0 {
+						fmt.Fprintf(os.Stderr, "\nSecurity failures (%d):\n\n", len(securityFailed))
+						for _, e := range securityFailed {
+							fmt.Fprintf(os.Stderr, "  #%-6d %s/%s\n", e.PR.Number, e.PR.Owner, e.PR.Repo)
+							fmt.Fprintf(os.Stderr, "         %s\n", e.PR.Title)
+							fmt.Fprintf(os.Stderr, "         %s  %s\n\n", e.PR.URL, pr.ColorizeStatus(e.State, e.Detail))
+						}
+					}
+
+					if len(otherFailed) > 0 {
+						fmt.Fprintf(os.Stderr, "\nAction required (%d):\n\n", len(otherFailed))
+						for _, e := range otherFailed {
 							fmt.Fprintf(os.Stderr, "  #%-6d %s/%s\n", e.PR.Number, e.PR.Owner, e.PR.Repo)
 							fmt.Fprintf(os.Stderr, "         %s\n", e.PR.Title)
 							fmt.Fprintf(os.Stderr, "         %s  %s\n\n", e.PR.URL, pr.ColorizeStatus(e.State, e.Detail))
