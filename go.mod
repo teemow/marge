@@ -5,7 +5,7 @@ go 1.25.5
 require (
 	github.com/creativeprojects/go-selfupdate v1.5.2
 	github.com/google/go-github/v86 v86.0.0
-	github.com/google/go-github/v87 v87.0.0
+	github.com/google/go-github/v88 v88.0.0
 	github.com/google/go-github/v88 v88.0.0
 	github.com/manifoldco/promptui v0.9.0
 	github.com/mark3labs/mcp-go v0.54.0
