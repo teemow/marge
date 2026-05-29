@@ -18,6 +18,7 @@ const (
 	StatusAutoMerge
 	StatusFailed
 	StatusFailedSecurity
+	StatusBlockedCI
 	StatusSkipped
 	StatusConflict
 	StatusUntrustedAuthor
@@ -45,6 +46,8 @@ func (s StatusState) String() string {
 		return "Failed"
 	case StatusFailedSecurity:
 		return "Failed (security)"
+	case StatusBlockedCI:
+		return "CI unavailable (budget)"
 	case StatusSkipped:
 		return "Skipped"
 	case StatusConflict:
@@ -99,20 +102,30 @@ func (s *PRStatus) Snapshot() []StatusEntry {
 	return snap
 }
 
-func (s *PRStatus) Summary() (merged, failed, skipped int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+// countsLocked tallies entries by category. blocked (CI could not run because
+// of an Actions budget block) is counted separately from failed so a billing
+// block is never mistaken for a genuine CI failure. Callers must hold s.mu.
+func (s *PRStatus) countsLocked() (merged, failed, blocked, skipped int) {
 	for _, e := range s.entries {
 		switch e.State {
 		case StatusMerged, StatusAlreadyMerged, StatusAutoMerge:
 			merged++
 		case StatusFailed, StatusFailedSecurity, StatusConflict, StatusUntrustedAuthor:
 			failed++
+		case StatusBlockedCI:
+			blocked++
 		case StatusSkipped:
 			skipped++
 		}
 	}
 	return
+}
+
+// Summary returns aggregate counts across all entries.
+func (s *PRStatus) Summary() (merged, failed, blocked, skipped int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.countsLocked()
 }
 
 func (s *PRStatus) Len() int {
@@ -124,18 +137,12 @@ func (s *PRStatus) Len() int {
 func (s *PRStatus) FormatSummary() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var merged, failed, skipped int
-	for _, e := range s.entries {
-		switch e.State {
-		case StatusMerged, StatusAlreadyMerged, StatusAutoMerge:
-			merged++
-		case StatusFailed, StatusFailedSecurity, StatusConflict, StatusUntrustedAuthor:
-			failed++
-		case StatusSkipped:
-			skipped++
-		}
-	}
+	merged, failed, blocked, skipped := s.countsLocked()
 	total := len(s.entries)
+	if blocked > 0 {
+		return fmt.Sprintf("%d PRs processed: %d merged, %d failed, %d CI-unavailable, %d skipped",
+			total, merged, failed, blocked, skipped)
+	}
 	return fmt.Sprintf("%d PRs processed: %d merged, %d failed, %d skipped", total, merged, failed, skipped)
 }
 
@@ -146,6 +153,22 @@ func (s *PRStatus) ActionRequired() []StatusEntry {
 	for _, e := range s.entries {
 		switch e.State {
 		case StatusFailed, StatusFailedSecurity, StatusConflict, StatusUntrustedAuthor:
+			result = append(result, e)
+		}
+	}
+	return result
+}
+
+// BlockedEntries returns entries whose CI could not run because a GitHub
+// Actions budget / spending-limit block prevented every job from starting.
+// These are deliberately kept out of ActionRequired and the failed counts:
+// the remedy is "raise or await the Actions budget", not "rescue the code".
+func (s *PRStatus) BlockedEntries() []StatusEntry {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var result []StatusEntry
+	for _, e := range s.entries {
+		if e.State == StatusBlockedCI {
 			result = append(result, e)
 		}
 	}

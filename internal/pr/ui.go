@@ -146,6 +146,10 @@ func ColorizeStatus(state StatusState, detail string) string {
 		return fmt.Sprintf("\033[1;91m%s\033[0m", label)
 	case StatusFailed, StatusConflict, StatusUntrustedAuthor:
 		return fmt.Sprintf("\033[31m%s\033[0m", label) // red
+	case StatusBlockedCI:
+		// Magenta so a billing/budget block reads as "not a code failure",
+		// distinct from the red used for genuine failures.
+		return fmt.Sprintf("\033[35m%s\033[0m", label)
 	case StatusSkipped:
 		return fmt.Sprintf("\033[33m%s\033[0m", label) // yellow
 	case StatusChecking, StatusApproving, StatusMerging:
@@ -158,6 +162,7 @@ func ColorizeStatus(state StatusState, detail string) string {
 func PrintPlainResults(w *os.File, status *PRStatus) {
 	merged := status.MergedEntries()
 	securityFailed, otherFailed := SplitActionRequired(status.ActionRequired())
+	blocked := status.BlockedEntries()
 	skipped := status.SkippedEntries()
 
 	if len(merged) > 0 {
@@ -170,6 +175,7 @@ func PrintPlainResults(w *os.File, status *PRStatus) {
 
 	printFailureGroup(w, "Security failures", securityFailed)
 	printFailureGroup(w, "Failed", otherFailed)
+	printFailureGroup(w, "CI unavailable (Actions budget)", blocked)
 
 	if len(skipped) > 0 {
 		_, _ = fmt.Fprintf(w, "Skipped (%d):\n", len(skipped))

@@ -84,9 +84,21 @@ The built-in list contains: `security`, `govulncheck`, `trivy`, `codeql`, `snyk`
 
 Pass `--security-patterns "Trivy,Govulncheck,CodeQL,Analyze"` to replace the list. The github/codeql-action template uses a job name like `Analyze (<lang>)` that the `codeql` substring will not match, so add `Analyze` if you rely on that template.
 
+#### CI unavailable (Actions budget)
+
+Sometimes a check reports `failure` not because the code is broken but because GitHub never started the job -- a personal account or organization has exhausted its Actions budget. GitHub surfaces this as a job that never reached the runner:
+
+- `The job was not started because an Actions budget is preventing further use.`
+
+Verified against the live GitHub API, such a block shows up as a check run with conclusion `failure`, empty `output`, and a single failure-level **annotation** whose `message` carries the text above (the message is in the annotation, not the output fields). marge therefore inspects each failed check run's annotations and matches that message -- which never appears for a genuine test, build, or lint failure.
+
+When **every** failing check on a PR is such a block, marge classifies the PR as `CI unavailable (budget)` rather than `Failed`. It is counted separately, surfaced under its own section, and kept out of any rescue path -- the fix is to raise or await the Actions budget, not to touch the code. If a PR has a mix of a genuine failure and a budget block, it is still reported as `Failed`.
+
+> Only this API-verified message is matched; any unrecognized block degrades to the normal `Failed` path rather than risking a real failure being hidden.
+
 ### `marge sweep [flags]`
 
-Processes all matching PRs without interactive grouping. After processing, prints a **Security failures** section followed by an **Action required** section listing any PRs that failed, have conflicts, or came from untrusted authors. Security failures (e.g. govulncheck, Trivy, CodeQL) are separated so they are not mistaken for ordinary CI flakiness.
+Processes all matching PRs without interactive grouping. After processing, prints a **Security failures** section, an **Action required** section listing any PRs that failed, have conflicts, or came from untrusted authors, and a **CI unavailable (Actions budget)** section for PRs whose checks never ran because an Actions spending limit was exhausted. Security failures (e.g. govulncheck, Trivy, CodeQL) are separated so they are not mistaken for ordinary CI flakiness, and budget-blocked PRs are separated so they are not mistaken for genuine failures (see [CI unavailable (Actions budget)](#ci-unavailable-actions-budget)).
 
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|

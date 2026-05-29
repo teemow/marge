@@ -53,3 +53,35 @@ func TestBuildSweepResult_failedAndSecurityAreDisjoint(t *testing.T) {
 		t.Errorf("ActionRequired[0].Number = %d, want 1", got.ActionRequired[0].Number)
 	}
 }
+
+// TestBuildSweepResult_ciUnavailableIsSeparate guards that a PR blocked by a
+// GitHub Actions budget is reported under ci_unavailable and excluded from
+// both the failed count and action_required, so rescue tooling never picks
+// it up.
+func TestBuildSweepResult_ciUnavailableIsSeparate(t *testing.T) {
+	status := pr.NewPRStatus()
+	idx1 := status.Add(pr.PRInfo{Owner: "o", Repo: "r", Number: 1})
+	status.Update(idx1, pr.StatusFailed, "checks failed: build")
+	idx2 := status.Add(pr.PRInfo{Owner: "o", Repo: "r", Number: 2})
+	status.Update(idx2, pr.StatusBlockedCI, "Actions budget exhausted; no jobs ran: Test, Lint")
+
+	got := buildSweepResult(status)
+
+	if got.Summary.Failed != 1 {
+		t.Errorf("Failed = %d, want 1 (budget block must be excluded)", got.Summary.Failed)
+	}
+	if got.Summary.CIUnavailable != 1 {
+		t.Errorf("CIUnavailable = %d, want 1", got.Summary.CIUnavailable)
+	}
+	if len(got.CIUnavailable) != 1 {
+		t.Fatalf("CIUnavailable slice len = %d, want 1", len(got.CIUnavailable))
+	}
+	if got.CIUnavailable[0].Number != 2 {
+		t.Errorf("CIUnavailable[0].Number = %d, want 2", got.CIUnavailable[0].Number)
+	}
+	for _, e := range got.ActionRequired {
+		if e.Number == 2 {
+			t.Error("budget-blocked PR must not appear in action_required")
+		}
+	}
+}
