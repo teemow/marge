@@ -5,9 +5,8 @@ import (
 	"strings"
 )
 
-// Detection is based on the message GitHub actually emits when a job is
-// blocked before it can start because of a billing / Actions-budget /
-// spending-limit problem.
+// Detection matches the single message GitHub actually emits when a job is
+// refused before it can start because an Actions budget is exhausted.
 //
 // Verified against the live GitHub API (GET .../check-runs and its
 // /annotations) on a real budget-blocked PR. The observed shape is:
@@ -20,67 +19,29 @@ import (
 // So the message is carried in the check run's *annotation message*, not its
 // output fields, and the conclusion is "failure" (we also accept
 // "startup_failure"/"timed_out"/"cancelled" defensively). We still scan the
-// output fields too, in case other block variants populate them.
+// output fields too, in case a future variant populates them.
 //
-// Two further variants are reported in the wild for failed payments and
-// locked accounts (not reproducible here, so not API-verified, but handled by
-// the shared prefix below):
-//
-//	"The job was not started because recent account payments have failed or your
-//	 spending limit needs to be increased. ..."
-//	"The job was not started because your account is locked due to a billing issue."
-//
-// The constant signal across every variant is the platform prefix
-// "job was not started because": GitHub uses it for jobs that never reach the
-// runner, and a genuine test/build/lint failure never produces it. We treat
-// that prefix as the high-confidence anchor and require a billing marker
-// alongside it so unrelated "job was not started" reasons (e.g. concurrency
-// cancellation) are not misread as a budget block.
+// Only this API-verified wording is matched. No unverified billing / payment /
+// spending-limit variants are assumed, so any unrecognized block degrades to
+// the normal Failed path rather than risking a real failure being hidden.
 
-// jobNotStartedPhrase is the platform-level prefix GitHub uses for a job that
-// never started. On its own it is not necessarily billing-related, so it is
-// only treated as a budget block when paired with a billingMarker.
-const jobNotStartedPhrase = "job was not started because"
-
-// standaloneBudgetPhrases are unambiguous on their own: they cannot plausibly
-// appear in a genuine CI failure, so finding one anywhere is sufficient.
-var standaloneBudgetPhrases = []string{
+// budgetBlockPhrases are case-insensitive substrings that unambiguously
+// identify an Actions budget block. They cannot plausibly appear in a genuine
+// test/build/lint failure, so finding one anywhere is sufficient.
+var budgetBlockPhrases = []string{
 	"actions budget is preventing further use",
 }
 
-// billingMarkers indicate a billing / budget / spending-limit cause. They are
-// only trusted in combination with jobNotStartedPhrase, because words like
-// "billing" or "payment" can legitimately appear in a real failure's output
-// (e.g. a billing service's failing tests) and must never on their own cause
-// a genuine failure to be hidden from the rescue path.
-var billingMarkers = []string{
-	"budget",
-	"spending limit",
-	"spending-limit",
-	"billing",
-	"payment",
-}
-
-// isBudgetBlockMessage reports whether msg looks like a GitHub job that was
-// blocked before starting because of a billing / Actions-budget /
-// spending-limit problem, as opposed to a real CI failure. A match requires
-// either an unambiguous standalone phrase, or the "job was not started
-// because" prefix together with a billing marker.
+// isBudgetBlockMessage reports whether msg is the GitHub "Actions budget"
+// block message (a job refused before starting because the budget was
+// exhausted), as opposed to a real CI failure.
 func isBudgetBlockMessage(msg string) bool {
 	if msg == "" {
 		return false
 	}
 	lower := strings.ToLower(msg)
-	for _, phrase := range standaloneBudgetPhrases {
+	for _, phrase := range budgetBlockPhrases {
 		if strings.Contains(lower, phrase) {
-			return true
-		}
-	}
-	if !strings.Contains(lower, jobNotStartedPhrase) {
-		return false
-	}
-	for _, marker := range billingMarkers {
-		if strings.Contains(lower, marker) {
 			return true
 		}
 	}
@@ -88,13 +49,11 @@ func isBudgetBlockMessage(msg string) bool {
 }
 
 // isBudgetBlockOutput reports whether any of a check run's output fields or
-// annotation messages indicate a budget / billing block. Because
-// isBudgetBlockMessage already anchors on the platform "job was not started
-// because" prefix (or an unambiguous standalone phrase), it is safe to apply
-// uniformly to the free-form output fields and the annotations alike. It is a
-// pure helper so the classification can be exercised without hitting the
-// GitHub API: the processor gathers the output strings and annotation
-// messages and delegates the decision here.
+// annotation messages indicate an Actions budget block. The verified message
+// lives in the annotation, but the output fields are scanned too as a cheap
+// defensive measure. It is a pure helper so the classification can be
+// exercised without hitting the GitHub API: the processor gathers the output
+// strings and annotation messages and delegates the decision here.
 func isBudgetBlockOutput(title, summary, text string, annotationMessages []string) bool {
 	if isBudgetBlockMessage(title) || isBudgetBlockMessage(summary) || isBudgetBlockMessage(text) {
 		return true

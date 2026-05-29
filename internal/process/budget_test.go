@@ -8,41 +8,35 @@ func TestIsBudgetBlockMessage(t *testing.T) {
 		msg  string
 		want bool
 	}{
-		// Real messages GitHub emits for a job blocked before it starts.
 		{
 			// Exact annotation message captured from the live GitHub API on a
 			// real budget-blocked check run (conclusion "failure", message in
 			// the annotation). Locked in as a regression guard.
-			name: "actions budget variant (API-verified annotation message)",
+			name: "actions budget message (API-verified annotation message)",
 			msg:  "The job was not started because an Actions budget is preventing further use.",
 			want: true,
 		},
 		{
-			name: "actions budget variant with trailing text",
+			name: "actions budget message with trailing text",
 			msg:  "The job was not started because an Actions budget is preventing further use. This job failed",
 			want: true,
 		},
 		{
-			name: "failed payments / spending limit variant",
-			msg:  "The job was not started because recent account payments have failed or your spending limit needs to be increased. Please check the 'Billing & plans' section in your settings",
-			want: true,
-		},
-		{
-			name: "account locked / billing issue variant",
-			msg:  "The job was not started because your account is locked due to a billing issue.",
-			want: true,
-		},
-		{
-			name: "standalone actions-budget phrase case-insensitive",
+			name: "actions budget phrase case-insensitive",
 			msg:  "ACTIONS BUDGET IS PREVENTING FURTHER USE",
 			want: true,
 		},
-		// The "job was not started because" prefix alone is not enough: it must
-		// be paired with a billing marker, so unrelated job-init reasons stay
-		// out of the budget bucket.
+		// Unverified billing/payment/spending-limit wording is intentionally
+		// NOT matched: an unrecognized block degrades to the normal Failed path
+		// rather than risking a real failure being hidden.
 		{
-			name: "job not started for a non-billing reason does not match",
-			msg:  "The job was not started because the run was canceled",
+			name: "unverified spending-limit wording does not match",
+			msg:  "The job was not started because recent account payments have failed or your spending limit needs to be increased.",
+			want: false,
+		},
+		{
+			name: "unverified billing-issue wording does not match",
+			msg:  "The job was not started because your account is locked due to a billing issue.",
 			want: false,
 		},
 		// A genuine failure whose text merely mentions billing words must not be
@@ -107,11 +101,6 @@ func TestIsBudgetBlockOutput(t *testing.T) {
 		{
 			name:        "budget message in annotation",
 			annotations: []string{"some context", budget},
-			want:        true,
-		},
-		{
-			name:        "payments/spending-limit variant in annotation",
-			annotations: []string{"The job was not started because recent account payments have failed or your spending limit needs to be increased."},
 			want:        true,
 		},
 		{
