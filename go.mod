@@ -4,12 +4,10 @@ go 1.25.5
 
 require (
 	github.com/creativeprojects/go-selfupdate v1.5.2
-	github.com/google/go-github/v86 v86.0.0
 	github.com/google/go-github/v88 v88.0.0
 	github.com/manifoldco/promptui v0.9.0
 	github.com/mark3labs/mcp-go v0.54.1
 	github.com/spf13/cobra v1.10.2
-	golang.org/x/oauth2 v0.36.0
 )
 
 require (
@@ -34,6 +32,7 @@ require (
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	gitlab.com/gitlab-org/api/client-go v1.9.1 // indirect
 	golang.org/x/crypto v0.46.0 // indirect
+	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sys v0.39.0 // indirect
 	golang.org/x/text v0.32.0 // indirect
 	golang.org/x/time v0.14.0 // indirect

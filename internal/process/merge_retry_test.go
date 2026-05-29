@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/go-github/v86/github"
+	"github.com/google/go-github/v88/github"
 	"github.com/teemow/marge/internal/pr"
 )
 
@@ -42,9 +42,14 @@ func TestIsBaseBranchModified(t *testing.T) {
 // newTestClient creates a github.Client pointing at the given httptest.Server.
 func newTestClient(t *testing.T, server *httptest.Server) *github.Client {
 	t.Helper()
-	client := github.NewClient(server.Client())
-	u, _ := client.BaseURL.Parse(server.URL + "/")
-	client.BaseURL = u
+	baseURL := server.URL + "/"
+	client, err := github.NewClient(
+		github.WithHTTPClient(server.Client()),
+		github.WithURLs(&baseURL, &baseURL),
+	)
+	if err != nil {
+		t.Fatalf("github.NewClient: %v", err)
+	}
 	return client
 }
 
