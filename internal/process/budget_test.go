@@ -8,29 +8,40 @@ func TestIsBudgetBlockMessage(t *testing.T) {
 		msg  string
 		want bool
 	}{
+		// Real messages GitHub emits for a job blocked before it starts.
 		{
-			name: "canonical job-not-started annotation",
-			msg:  "The job was not started because an Actions budget is preventing further use.",
+			name: "actions budget variant",
+			msg:  "The job was not started because an Actions budget is preventing further use. This job failed",
 			want: true,
 		},
 		{
-			name: "actions budget phrase case-insensitive",
+			name: "failed payments / spending limit variant",
+			msg:  "The job was not started because recent account payments have failed or your spending limit needs to be increased. Please check the 'Billing & plans' section in your settings",
+			want: true,
+		},
+		{
+			name: "account locked / billing issue variant",
+			msg:  "The job was not started because your account is locked due to a billing issue.",
+			want: true,
+		},
+		{
+			name: "standalone actions-budget phrase case-insensitive",
 			msg:  "ACTIONS BUDGET IS PREVENTING FURTHER USE",
 			want: true,
 		},
+		// The "job was not started because" prefix alone is not enough: it must
+		// be paired with a billing marker, so unrelated job-init reasons stay
+		// out of the budget bucket.
 		{
-			name: "spending limit wording",
-			msg:  "The spending limit for this account has been reached.",
-			want: true,
+			name: "job not started for a non-billing reason does not match",
+			msg:  "The job was not started because the run was canceled",
+			want: false,
 		},
+		// A genuine failure whose text merely mentions billing words must not be
+		// reclassified -- that would hide a real failure from the rescue path.
 		{
-			name: "hyphenated spending-limit",
-			msg:  "Account spending-limit exceeded",
-			want: true,
-		},
-		{
-			name: "generic billing wording no longer matches",
-			msg:  "There is a billing problem with your account",
+			name: "genuine failure mentioning billing words does not match",
+			msg:  "billing_test.go: expected spending limit 100, got 0",
 			want: false,
 		},
 		{
@@ -91,13 +102,14 @@ func TestIsBudgetBlockOutput(t *testing.T) {
 			want:        true,
 		},
 		{
-			name:        "spending-limit wording is trusted in annotations",
-			annotations: []string{"The spending limit for this account has been reached."},
+			name:        "payments/spending-limit variant in annotation",
+			annotations: []string{"The job was not started because recent account payments have failed or your spending limit needs to be increased."},
 			want:        true,
 		},
 		{
-			name:    "spending-limit wording in output fields is not trusted",
-			summary: "spending limit test: expected the spending limit to be 100",
+			name:    "genuine failure mentioning billing in output does not match",
+			title:   "Tests failed",
+			summary: "billing service: spending limit assertion failed",
 			want:    false,
 		},
 		{

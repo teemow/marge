@@ -86,9 +86,15 @@ Pass `--security-patterns "Trivy,Govulncheck,CodeQL,Analyze"` to replace the lis
 
 #### CI unavailable (Actions budget)
 
-Sometimes a check reports `failure` not because the code is broken but because GitHub never started the job -- e.g. a personal account or organization has exhausted its Actions spending limit. The check annotation then reads `The job was not started because an Actions budget is preventing further use.`
+Sometimes a check reports `failure` not because the code is broken but because GitHub never started the job -- e.g. a personal account or organization has exhausted its Actions budget, hit its spending limit, or has a failed payment. GitHub surfaces this as a job that never reached the runner, with messages such as:
 
-When **every** failing check on a PR carries such a budget/spending-limit annotation, marge classifies the PR as `CI unavailable (budget)` rather than `Failed`. It is counted separately, surfaced under its own section, and kept out of any rescue path -- the fix is to raise or await the Actions budget, not to touch the code. If a PR has a mix of a genuine failure and a budget block, it is still reported as `Failed`.
+- `The job was not started because an Actions budget is preventing further use.`
+- `The job was not started because recent account payments have failed or your spending limit needs to be increased. ...`
+- `The job was not started because your account is locked due to a billing issue.`
+
+marge detects these by the platform prefix `the job was not started because` paired with a billing/budget marker (the prefix never appears for a genuine test, build, or lint failure). When **every** failing check on a PR is such a block, marge classifies the PR as `CI unavailable (budget)` rather than `Failed`. It is counted separately, surfaced under its own section, and kept out of any rescue path -- the fix is to raise or await the Actions budget, not to touch the code. If a PR has a mix of a genuine failure and a budget block, it is still reported as `Failed`.
+
+> Detection is best-effort string matching against the messages GitHub is known to emit; it is deliberately conservative, so an unrecognized variant degrades to the normal `Failed` path rather than risking a real failure being hidden.
 
 ### `marge sweep [flags]`
 
