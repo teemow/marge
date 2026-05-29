@@ -5,13 +5,27 @@ import (
 	"strings"
 )
 
-// Detection is based on the messages GitHub actually emits when a job is
+// Detection is based on the message GitHub actually emits when a job is
 // blocked before it can start because of a billing / Actions-budget /
-// spending-limit problem. Real-world examples (verified against GitHub
-// documentation and reported incidents -- the conclusion is `failure` or
-// `startup_failure`, and the text is surfaced as a failure-level annotation):
+// spending-limit problem.
 //
-//	"The job was not started because an Actions budget is preventing further use."
+// Verified against the live GitHub API (GET .../check-runs and its
+// /annotations) on a real budget-blocked PR. The observed shape is:
+//
+//	check run: status "completed", conclusion "failure",
+//	           output.title/summary/text all null, output.annotations_count 1
+//	annotation: annotation_level "failure", path ".github", title "",
+//	            message "The job was not started because an Actions budget is preventing further use."
+//
+// So the message is carried in the check run's *annotation message*, not its
+// output fields, and the conclusion is "failure" (we also accept
+// "startup_failure"/"timed_out"/"cancelled" defensively). We still scan the
+// output fields too, in case other block variants populate them.
+//
+// Two further variants are reported in the wild for failed payments and
+// locked accounts (not reproducible here, so not API-verified, but handled by
+// the shared prefix below):
+//
 //	"The job was not started because recent account payments have failed or your
 //	 spending limit needs to be increased. ..."
 //	"The job was not started because your account is locked due to a billing issue."

@@ -10,7 +10,15 @@ func TestIsBudgetBlockMessage(t *testing.T) {
 	}{
 		// Real messages GitHub emits for a job blocked before it starts.
 		{
-			name: "actions budget variant",
+			// Exact annotation message captured from the live GitHub API on a
+			// real budget-blocked check run (conclusion "failure", message in
+			// the annotation). Locked in as a regression guard.
+			name: "actions budget variant (API-verified annotation message)",
+			msg:  "The job was not started because an Actions budget is preventing further use.",
+			want: true,
+		},
+		{
+			name: "actions budget variant with trailing text",
 			msg:  "The job was not started because an Actions budget is preventing further use. This job failed",
 			want: true,
 		},
