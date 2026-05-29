@@ -73,6 +73,7 @@ that could not be merged so you can fix them manually.`,
 					security, other := pr.SplitActionRequired(status.ActionRequired())
 					printSweepFailures(os.Stderr, "Security failures", security)
 					printSweepFailures(os.Stderr, "Action required", other)
+					printSweepFailures(os.Stderr, "CI unavailable (Actions budget)", status.BlockedEntries())
 				}
 			}
 

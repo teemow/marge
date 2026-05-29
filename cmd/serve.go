@@ -75,7 +75,12 @@ type SweepResult struct {
 	Merged           []SweepPREntry `json:"merged,omitempty"`
 	SecurityFailures []SweepPREntry `json:"security_failures,omitempty"`
 	ActionRequired   []SweepPREntry `json:"action_required,omitempty"`
-	Skipped          []SweepPREntry `json:"skipped,omitempty"`
+	// CIUnavailable lists PRs whose CI could not run because a GitHub Actions
+	// budget / spending-limit block prevented every job from starting. These
+	// are NOT failures: the remedy is to raise or await the Actions budget,
+	// so they are reported separately and excluded from action_required.
+	CIUnavailable []SweepPREntry `json:"ci_unavailable,omitempty"`
+	Skipped       []SweepPREntry `json:"skipped,omitempty"`
 }
 
 // SweepSummary contains aggregate counts from the sweep.
@@ -89,7 +94,10 @@ type SweepSummary struct {
 	Merged           int `json:"merged"`
 	Failed           int `json:"failed"`
 	SecurityFailures int `json:"security_failures"`
-	Skipped          int `json:"skipped"`
+	// CIUnavailable counts PRs whose CI could not run because of a GitHub
+	// Actions budget block. It is disjoint from Failed and SecurityFailures.
+	CIUnavailable int `json:"ci_unavailable"`
+	Skipped       int `json:"skipped"`
 }
 
 // SweepPREntry represents a single PR in the sweep results.
@@ -174,9 +182,10 @@ func handleSweep(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToo
 }
 
 func buildSweepResult(status *pr.PRStatus) SweepResult {
-	merged, failed, skipped := status.Summary()
+	merged, failed, blocked, skipped := status.Summary()
 	total := status.Len()
 	securityEntries := status.SecurityFailedEntries()
+	blockedEntries := status.BlockedEntries()
 
 	result := SweepResult{
 		Summary: SweepSummary{
@@ -184,6 +193,7 @@ func buildSweepResult(status *pr.PRStatus) SweepResult {
 			Merged:           merged,
 			Failed:           failed - len(securityEntries),
 			SecurityFailures: len(securityEntries),
+			CIUnavailable:    blocked,
 			Skipped:          skipped,
 		},
 	}
@@ -206,6 +216,10 @@ func buildSweepResult(status *pr.PRStatus) SweepResult {
 
 	for _, e := range securityEntries {
 		result.SecurityFailures = append(result.SecurityFailures, toEntry(e))
+	}
+
+	for _, e := range blockedEntries {
+		result.CIUnavailable = append(result.CIUnavailable, toEntry(e))
 	}
 
 	for _, e := range status.ActionRequired() {

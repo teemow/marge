@@ -116,25 +116,32 @@ func (p *Processor) ProcessPR(ctx context.Context, info pr.PRInfo, status *pr.PR
 func (p *Processor) waitForChecks(ctx context.Context, info pr.PRInfo, status *pr.PRStatus, idx int) error {
 	deadline := time.After(checkPollTimeout)
 	for {
-		state, failedChecks, err := p.getCombinedCheckState(ctx, info)
+		outcome, err := p.getCombinedCheckState(ctx, info)
 		if err != nil {
 			status.Update(idx, pr.StatusFailed, ghErrorDetail("check error", err))
 			return err
 		}
 
-		switch state {
+		switch outcome.state {
 		case "success":
 			return nil
+		case "blocked":
+			// CI never ran because a GitHub Actions budget / spending-limit
+			// block prevented every job from starting. This is not a code
+			// failure, so surface it under a distinct status and keep it out
+			// of the rescue path.
+			status.Update(idx, pr.StatusBlockedCI, blockedDetail(outcome.blockedChecks))
+			return fmt.Errorf("ci unavailable: actions budget")
 		case "failure", "error":
-			if name := classifySecurityFailure(failedChecks, p.securityPatterns()); name != "" {
+			if name := classifySecurityFailure(outcome.failedChecks, p.securityPatterns()); name != "" {
 				status.Update(idx, pr.StatusFailedSecurity, fmt.Sprintf("security check failed: %s", name))
 			} else {
-				status.Update(idx, pr.StatusFailed, failureDetail(failedChecks))
+				status.Update(idx, pr.StatusFailed, failureDetail(outcome.failedChecks))
 			}
 			return fmt.Errorf("checks failed")
 		}
 
-		status.Update(idx, pr.StatusChecking, state)
+		status.Update(idx, pr.StatusChecking, outcome.state)
 
 		select {
 		case <-ctx.Done():
@@ -148,10 +155,21 @@ func (p *Processor) waitForChecks(ctx context.Context, info pr.PRInfo, status *p
 	}
 }
 
-func (p *Processor) getCombinedCheckState(ctx context.Context, info pr.PRInfo) (string, []string, error) {
+// checkOutcome is the result of evaluating a PR's combined commit status and
+// check runs. failedChecks holds genuine failures; blockedChecks holds checks
+// that failed solely because a GitHub Actions budget block kept the job from
+// starting. The two are tracked separately so a billing block is never
+// reported as a real CI failure.
+type checkOutcome struct {
+	state         string
+	failedChecks  []string
+	blockedChecks []string
+}
+
+func (p *Processor) getCombinedCheckState(ctx context.Context, info pr.PRInfo) (checkOutcome, error) {
 	combined, _, err := p.Client.Repositories.GetCombinedStatus(ctx, info.Owner, info.Repo, fmt.Sprintf("refs/pull/%d/head", info.Number), nil)
 	if err != nil {
-		return "", nil, err
+		return checkOutcome{}, err
 	}
 
 	combinedState := combined.GetState()
@@ -159,15 +177,16 @@ func (p *Processor) getCombinedCheckState(ctx context.Context, info pr.PRInfo) (
 	// Also check check-runs (GitHub Actions use check runs, not commit statuses)
 	checkRuns, _, err := p.Client.Checks.ListCheckRunsForRef(ctx, info.Owner, info.Repo, fmt.Sprintf("refs/pull/%d/head", info.Number), nil)
 	if err != nil {
-		return "", nil, err
+		return checkOutcome{}, err
 	}
 
 	if checkRuns.GetTotal() == 0 && len(combined.Statuses) == 0 {
 		// No checks configured -- treat as success
-		return "success", nil, nil
+		return checkOutcome{state: "success"}, nil
 	}
 
 	var failedChecks []string
+	var blockedChecks []string
 	allComplete := true
 	hasFailure := false
 	for _, cr := range checkRuns.CheckRuns {
@@ -176,9 +195,20 @@ func (p *Processor) getCombinedCheckState(ctx context.Context, info pr.PRInfo) (
 			continue
 		}
 		conclusion := cr.GetConclusion()
-		if conclusion == "failure" || conclusion == "timed_out" || conclusion == "cancelled" {
+		if conclusion == "failure" || conclusion == "startup_failure" || conclusion == "timed_out" || conclusion == "cancelled" {
+			name := cr.GetName()
+			// A job that never started because of an Actions budget /
+			// spending-limit block is not a real failure -- route it to the
+			// blocked bucket instead so it is surfaced separately and kept
+			// out of the rescue path.
+			if p.isBudgetBlockedCheckRun(ctx, info, cr) {
+				if name != "" {
+					blockedChecks = append(blockedChecks, name)
+				}
+				continue
+			}
 			hasFailure = true
-			if name := cr.GetName(); name != "" {
+			if name != "" {
 				failedChecks = append(failedChecks, name)
 			}
 		}
@@ -194,19 +224,55 @@ func (p *Processor) getCombinedCheckState(ctx context.Context, info pr.PRInfo) (
 	}
 
 	if hasFailure {
-		return "failure", failedChecks, nil
+		return checkOutcome{state: "failure", failedChecks: failedChecks, blockedChecks: blockedChecks}, nil
 	}
 	if !allComplete {
-		return "pending", nil, nil
+		return checkOutcome{state: "pending"}, nil
 	}
 	if combinedState == "failure" || combinedState == "error" {
-		return combinedState, failedChecks, nil
+		return checkOutcome{state: combinedState, failedChecks: failedChecks, blockedChecks: blockedChecks}, nil
+	}
+	// Every failing check was a budget block and nothing genuinely failed:
+	// the PR's CI could not run at all.
+	if len(blockedChecks) > 0 {
+		return checkOutcome{state: "blocked", blockedChecks: blockedChecks}, nil
 	}
 	if combinedState == "pending" && len(combined.Statuses) > 0 {
-		return "pending", nil, nil
+		return checkOutcome{state: "pending"}, nil
 	}
 
-	return "success", nil, nil
+	return checkOutcome{state: "success"}, nil
+}
+
+// isBudgetBlockedCheckRun reports whether a failed check run failed only
+// because a GitHub Actions budget / spending-limit block prevented the job
+// from starting. It inspects the check run's output fields first (cheap, no
+// extra request) and falls back to fetching the run's annotations, which is
+// where GitHub records the "job was not started because an Actions budget is
+// preventing further use" message. Annotation-fetch errors are treated as
+// "not a budget block" so a transient API error never hides a real failure.
+func (p *Processor) isBudgetBlockedCheckRun(ctx context.Context, info pr.PRInfo, cr *github.CheckRun) bool {
+	out := cr.GetOutput()
+	title := out.GetTitle()
+	summary := out.GetSummary()
+	text := out.GetText()
+	if isBudgetBlockOutput(title, summary, text, nil) {
+		return true
+	}
+
+	if out.GetAnnotationsCount() == 0 {
+		return false
+	}
+
+	annotations, _, err := p.Client.Checks.ListCheckRunAnnotations(ctx, info.Owner, info.Repo, cr.GetID(), nil)
+	if err != nil {
+		return false
+	}
+	messages := make([]string, 0, len(annotations))
+	for _, a := range annotations {
+		messages = append(messages, a.GetMessage())
+	}
+	return isBudgetBlockOutput("", "", "", messages)
 }
 
 // securityPatterns returns the normalized security-check pattern list to
