@@ -3,6 +3,7 @@ package pr
 import (
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -14,6 +15,20 @@ func ExtractOwnerRepo(htmlURL string) (string, string, error) {
 		return "", "", fmt.Errorf("unexpected URL format: %s", htmlURL)
 	}
 	return parts[0], parts[1], nil
+}
+
+// ParsePRURL parses owner, repo, and PR number from a GitHub pull request
+// URL (e.g. "https://github.com/OWNER/REPO/pull/123").
+func ParsePRURL(htmlURL string) (owner, repo string, number int, err error) {
+	parts := strings.Split(strings.TrimSuffix(strings.TrimPrefix(htmlURL, "https://github.com/"), "/"), "/")
+	if len(parts) < 4 || parts[2] != "pull" {
+		return "", "", 0, fmt.Errorf("not a pull request URL: %s", htmlURL)
+	}
+	number, err = strconv.Atoi(parts[3])
+	if err != nil {
+		return "", "", 0, fmt.Errorf("invalid PR number in URL %s: %w", htmlURL, err)
+	}
+	return parts[0], parts[1], number, nil
 }
 
 var conventionalCommitPrefixRE = regexp.MustCompile(`(?i)^\w+(\([^)]*\))?:\s*`)

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 )
 
 const (
@@ -15,6 +16,10 @@ type TableColumn struct {
 	Label string
 	Width int
 	Fn    func(PRInfo) string
+	// Color optionally returns an ANSI color prefix for a value. The
+	// value is padded to Width first, then wrapped, so colored cells
+	// stay aligned with the rest of the table.
+	Color func(PRInfo) string
 }
 
 func RepoInfoFunc(p PRInfo) string {
@@ -37,28 +42,35 @@ func AuthorInfoFunc(p PRInfo) string {
 	return p.Author
 }
 
+func ageColumn() TableColumn {
+	return TableColumn{Label: "Age", Width: 4, Fn: AgeInfoFunc, Color: AgeColorFunc}
+}
+
 func FullColumns() []TableColumn {
 	return []TableColumn{
-		{"Repository", 22, RepoInfoFunc},
-		{"Dependency", 22, DependencyInfoFunc},
-		{"Version", 18, VersionInfoFunc},
-		{"Author", 16, AuthorInfoFunc},
+		{Label: "Repository", Width: 22, Fn: RepoInfoFunc},
+		{Label: "Dependency", Width: 22, Fn: DependencyInfoFunc},
+		{Label: "Version", Width: 18, Fn: VersionInfoFunc},
+		ageColumn(),
+		{Label: "Author", Width: 16, Fn: AuthorInfoFunc},
 	}
 }
 
 func RepoSelectedColumns() []TableColumn {
 	return []TableColumn{
-		{"Dependency", 28, DependencyInfoFunc},
-		{"Version", 18, VersionInfoFunc},
-		{"Author", 16, AuthorInfoFunc},
+		{Label: "Dependency", Width: 28, Fn: DependencyInfoFunc},
+		{Label: "Version", Width: 18, Fn: VersionInfoFunc},
+		ageColumn(),
+		{Label: "Author", Width: 16, Fn: AuthorInfoFunc},
 	}
 }
 
 func DependencySelectedColumns() []TableColumn {
 	return []TableColumn{
-		{"Repository", 28, RepoInfoFunc},
-		{"Version", 18, VersionInfoFunc},
-		{"Author", 16, AuthorInfoFunc},
+		{Label: "Repository", Width: 28, Fn: RepoInfoFunc},
+		{Label: "Version", Width: 18, Fn: VersionInfoFunc},
+		ageColumn(),
+		{Label: "Author", Width: 16, Fn: AuthorInfoFunc},
 	}
 }
 
@@ -95,9 +107,18 @@ func PrintRow(w *os.File, e StatusEntry, cols []TableColumn) {
 	parts := make([]string, 0, len(cols)+2)
 	parts = append(parts, prLink)
 	for _, c := range cols {
-		parts = append(parts, fmt.Sprintf("%-*s", c.Width, truncate(c.Fn(e.PR), c.Width)))
+		cell := fmt.Sprintf("%-*s", c.Width, truncate(c.Fn(e.PR), c.Width))
+		if c.Color != nil {
+			if code := c.Color(e.PR); code != "" {
+				cell = code + cell + "\033[0m"
+			}
+		}
+		parts = append(parts, cell)
 	}
 	parts = append(parts, ColorizeStatus(e.State, e.Detail))
+	if e.Rescue != nil {
+		parts = append(parts, ColorizeRescue(e.Rescue, time.Now()))
+	}
 
 	_, _ = fmt.Fprintf(w, "\033[2K%s\n", strings.Join(parts, " "))
 }
@@ -214,8 +235,16 @@ func printPlainEntry(w *os.File, e StatusEntry) {
 	if ver != "" {
 		verStr = " " + ver
 	}
-	_, _ = fmt.Fprintf(w, "  #%-6d %s/%s  %s%s  [%s] [%s]\n",
-		e.PR.Number, e.PR.Owner, e.PR.Repo, dep, verStr, e.PR.Author, detail)
+	ageStr := ""
+	if age := FormatAge(e.PR.CreatedAt, time.Now()); age != "" {
+		ageStr = fmt.Sprintf(" [%s old]", age)
+	}
+	rescueStr := ""
+	if e.Rescue != nil {
+		rescueStr = fmt.Sprintf(" [%s]", FormatRescue(e.Rescue, time.Now()))
+	}
+	_, _ = fmt.Fprintf(w, "  #%-6d %s/%s  %s%s%s  [%s] [%s]%s\n",
+		e.PR.Number, e.PR.Owner, e.PR.Repo, dep, verStr, ageStr, e.PR.Author, detail, rescueStr)
 }
 
 // AdjustColumnWidths widens each column so every value fits without truncation.

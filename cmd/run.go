@@ -163,12 +163,13 @@ func searchPRs(ctx context.Context, client *github.Client, query string, login s
 					}
 
 					allPRs = append(allPRs, pr.PRInfo{
-						Owner:  owner,
-						Repo:   repo,
-						Number: issue.GetNumber(),
-						Title:  issue.GetTitle(),
-						URL:    url,
-						Author: issue.GetUser().GetLogin(),
+						Owner:     owner,
+						Repo:      repo,
+						Number:    issue.GetNumber(),
+						Title:     issue.GetTitle(),
+						URL:       url,
+						Author:    issue.GetUser().GetLogin(),
+						CreatedAt: issue.GetCreatedAt().Time,
 					})
 				}
 
@@ -213,12 +214,13 @@ func searchPRs(ctx context.Context, client *github.Client, query string, login s
 			}
 
 			allPRs = append(allPRs, pr.PRInfo{
-				Owner:  owner,
-				Repo:   repo,
-				Number: issue.GetNumber(),
-				Title:  title,
-				URL:    url,
-				Author: issue.GetUser().GetLogin(),
+				Owner:     owner,
+				Repo:      repo,
+				Number:    issue.GetNumber(),
+				Title:     title,
+				URL:       url,
+				Author:    issue.GetUser().GetLogin(),
+				CreatedAt: issue.GetCreatedAt().Time,
 			})
 		}
 
@@ -300,12 +302,13 @@ func listRepoPRs(ctx context.Context, client *github.Client, reposFile, query, a
 						continue
 					}
 					batch = append(batch, pr.PRInfo{
-						Owner:  owner,
-						Repo:   name,
-						Number: pull.GetNumber(),
-						Title:  pull.GetTitle(),
-						URL:    url,
-						Author: author,
+						Owner:     owner,
+						Repo:      name,
+						Number:    pull.GetNumber(),
+						Title:     pull.GetTitle(),
+						URL:       url,
+						Author:    author,
+						CreatedAt: pull.GetCreatedAt().Time,
 					})
 				}
 

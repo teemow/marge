@@ -96,6 +96,29 @@ When **every** failing check on a PR is such a block, marge classifies the PR as
 
 > Only this API-verified message is matched; any unrecognized block degrades to the normal `Failed` path rather than risking a real failure being hidden.
 
+#### PR age highlighting
+
+Every table and report includes an **Age** column showing how long the PR has been open (`5h`, `3d`, `2w`). PRs older than 3 days are highlighted yellow, older than 7 days red -- an old dependency PR has already survived several sweeps and is the most likely to need manual work. Failure sections are sorted oldest-first for the same reason.
+
+#### Rescue markers (prior AI rescue attempts)
+
+When an automated rescue (a coding agent, a CI bot, a human with a script) tries to fix a failing dependency PR and gives up, it can record that attempt as a machine-readable **ai-rescue marker** inside an ordinary PR comment:
+
+```markdown
+**AI rescue failed** (klaus): nock v14 is ESM-only and breaks Jest CJS resolution.
+
+<!-- ai-rescue: {"tool":"klaus","outcome":"failed","reason":"ESM-only breaks Jest CJS","head_sha":"d9f00bf2","at":"2026-06-09T18:40:00Z"} -->
+```
+
+On every sweep, marge reads the comments of each failing PR and annotates its entry with the most recent marker, e.g. `[rescue failed 1d ago (klaus): ESM-only breaks Jest CJS]`. The marker records the head SHA it was attempted against: when the PR branch is later rebased or gets a new version, the marker is reported as **stale** (`[rescue failed 3d ago (klaus), stale: new commits since]`) -- the attempt no longer describes the current code and the PR is fair game for another rescue.
+
+This makes the daily triage call obvious at a glance:
+
+- **failing + fresh failed rescue** -> automation already lost; a human is needed
+- **failing + stale or no marker** -> dispatch (another) automated rescue
+
+Use [`marge mark`](#marge-mark-pr-url-flags) to write markers without knowing the format. Any tool that can comment on a PR can participate -- there is no coupling to a specific agent framework.
+
 ### `marge sweep [flags]`
 
 Processes all matching PRs without interactive grouping. After processing, prints a **Security failures** section, an **Action required** section listing any PRs that failed, have conflicts, or came from untrusted authors, and a **CI unavailable (Actions budget)** section for PRs whose checks never ran because an Actions spending limit was exhausted. Security failures (e.g. govulncheck, Trivy, CodeQL) are separated so they are not mistaken for ordinary CI flakiness, and budget-blocked PRs are separated so they are not mistaken for genuine failures (see [CI unavailable (Actions budget)](#ci-unavailable-actions-budget)).
@@ -110,6 +133,30 @@ Processes all matching PRs without interactive grouping. After processing, print
 | `--merge-auto` | | `false` | Also merge PRs that have auto-merge enabled (by default these are skipped) |
 | `--trusted-authors` | | `renovate[bot],dependabot[bot]` | Comma-separated list of trusted PR author logins |
 | `--security-patterns` | | _(built-in)_ | Override the built-in security check pattern list (see [Security check patterns](#security-check-patterns)) |
+
+### `marge mark <pr-url> [flags]`
+
+Records a failed AI rescue attempt on a PR by posting an [ai-rescue marker](#rescue-markers-prior-ai-rescue-attempts) comment. The marker captures the PR's current head SHA, so it automatically goes stale when the branch changes.
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--outcome` | `failed` | Rescue outcome: `failed` (attempted, could not fix) or `blocked` (fix known but waits on something external) |
+| `--reason` | | Short explanation of why the rescue did not succeed |
+| `--tool` | `ai` | Name of the tool/agent that attempted the rescue (e.g. `klaus`) |
+
+```bash
+marge mark https://github.com/my-org/my-repo/pull/42 \
+  --tool klaus --reason "nock v14 is ESM-only, needs Jest ESM migration"
+```
+
+Requires the token to have **Issues: Read & write** (comment) permission in addition to the permissions listed under [Setup](#setup).
+
+### `marge serve`
+
+Starts a stdio MCP server exposing two tools:
+
+- **`sweep`** -- mirrors `marge sweep`, returning structured JSON (`summary`, `merged`, `security_failures`, `action_required`, `ci_unavailable`, `skipped`). Each PR entry includes `created_at`, `age_days`, and -- when a prior rescue attempt was found -- a `rescue` object (`tool`, `outcome`, `reason`, `at`, `stale`). Agent orchestrators should skip `action_required` entries whose rescue is `failed` and not `stale`, and escalate those to a human.
+- **`mark`** -- mirrors `marge mark`, so rescue agents can record their own failed attempts.
 
 ### Other commands
 
@@ -172,7 +219,7 @@ marge sweep --merge-auto
    - Approves the PR if not already approved.
    - If auto-merge is enabled, lets the merge queue handle it (unless `--merge-auto` is set).
    - Otherwise merges via squash.
-5. Displays a live-updating table with columns for repository, dependency, version, author, and status. Use `--no-tui` for plain-text output.
+5. Displays a live-updating table with columns for repository, dependency, version, age, author, and status. Failing entries are annotated with any prior AI rescue attempt found on the PR. Use `--no-tui` for plain-text output.
 
 ## Development
 
