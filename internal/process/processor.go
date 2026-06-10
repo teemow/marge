@@ -71,6 +71,14 @@ func (p *Processor) ProcessPR(ctx context.Context, info pr.PRInfo, status *pr.PR
 		return
 	}
 
+	// On any failure outcome, look for a prior automated rescue attempt
+	// recorded on the PR (an ai-rescue marker comment) so the operator can
+	// tell "needs a first rescue" apart from "a rescue already failed here".
+	// Deferred so every failure path is covered with one call site.
+	defer func() {
+		p.attachRescueMarker(ctx, info, pullReq.GetHead().GetSHA(), status, idx)
+	}()
+
 	actualAuthor := pullReq.GetUser().GetLogin()
 	if !p.isAuthorTrusted(actualAuthor) {
 		status.Update(idx, pr.StatusUntrustedAuthor, fmt.Sprintf("author %q not trusted", actualAuthor))
@@ -273,6 +281,46 @@ func (p *Processor) isBudgetBlockedCheckRun(ctx context.Context, info pr.PRInfo,
 		messages = append(messages, a.GetMessage())
 	}
 	return isBudgetBlockOutput("", "", "", messages)
+}
+
+// attachRescueMarker looks for the newest ai-rescue marker in the PR's
+// comments and attaches it to the status entry. It only runs for failure
+// outcomes (the marker is operator triage signal: "an automated rescue
+// was already attempted here"), and it degrades silently on API errors --
+// a comment-listing failure must never change a sweep result.
+func (p *Processor) attachRescueMarker(ctx context.Context, info pr.PRInfo, headSHA string, status *pr.PRStatus, idx int) {
+	switch status.StateAt(idx) {
+	case pr.StatusFailed, pr.StatusFailedSecurity, pr.StatusConflict:
+	default:
+		return
+	}
+
+	opts := &github.IssueListCommentsOptions{
+		ListOptions: github.ListOptions{PerPage: 100},
+	}
+	var marker *pr.RescueMarker
+	for {
+		comments, resp, err := p.Client.Issues.ListComments(ctx, info.Owner, info.Repo, info.Number, opts)
+		if err != nil {
+			return
+		}
+		// Comments are returned oldest-first; the last marker found wins.
+		for _, c := range comments {
+			if m := pr.ParseRescueMarker(c.GetBody()); m != nil {
+				marker = m
+			}
+		}
+		if resp.NextPage == 0 {
+			break
+		}
+		opts.Page = resp.NextPage
+	}
+
+	if marker == nil {
+		return
+	}
+	marker.MarkStale(headSHA)
+	status.SetRescue(idx, marker)
 }
 
 // securityPatterns returns the normalized security-check pattern list to

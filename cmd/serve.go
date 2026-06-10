@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -65,6 +66,27 @@ returning structured JSON results instead of terminal output.`,
 			handleSweep,
 		)
 
+		mcpServer.AddTool(
+			mcp.NewTool("mark",
+				mcp.WithDescription("Record a failed AI rescue attempt on a PR by posting a machine-readable ai-rescue marker comment. Subsequent sweeps surface the marker so the operator knows a rescue was already attempted; the marker goes stale automatically when the PR branch is updated."),
+				mcp.WithString("pr_url",
+					mcp.Required(),
+					mcp.Description("Pull request URL (https://github.com/OWNER/REPO/pull/NUMBER)"),
+				),
+				mcp.WithString("outcome",
+					mcp.Description("Rescue outcome (default: \"failed\")"),
+					mcp.Enum("failed", "blocked"),
+				),
+				mcp.WithString("reason",
+					mcp.Description("Short explanation of why the rescue did not succeed"),
+				),
+				mcp.WithString("tool",
+					mcp.Description("Name of the tool/agent that attempted the rescue (default: \"ai\")"),
+				),
+			),
+			handleMark,
+		)
+
 		return server.ServeStdio(mcpServer)
 	},
 }
@@ -102,13 +124,32 @@ type SweepSummary struct {
 
 // SweepPREntry represents a single PR in the sweep results.
 type SweepPREntry struct {
-	Owner  string `json:"owner"`
-	Repo   string `json:"repo"`
-	Number int    `json:"number"`
-	Title  string `json:"title"`
-	URL    string `json:"url"`
-	Status string `json:"status"`
-	Detail string `json:"detail,omitempty"`
+	Owner     string `json:"owner"`
+	Repo      string `json:"repo"`
+	Number    int    `json:"number"`
+	Title     string `json:"title"`
+	URL       string `json:"url"`
+	Status    string `json:"status"`
+	Detail    string `json:"detail,omitempty"`
+	CreatedAt string `json:"created_at,omitempty"`
+	AgeDays   int    `json:"age_days,omitempty"`
+	// Rescue describes the most recent prior automated rescue attempt
+	// found on the PR (an ai-rescue marker comment), if any. Consumers
+	// dispatching rescue agents should skip entries with a non-stale
+	// failed rescue and escalate them to a human instead.
+	Rescue *SweepRescueInfo `json:"rescue,omitempty"`
+}
+
+// SweepRescueInfo is the JSON projection of a pr.RescueMarker.
+type SweepRescueInfo struct {
+	Tool    string `json:"tool,omitempty"`
+	Outcome string `json:"outcome"`
+	Reason  string `json:"reason,omitempty"`
+	At      string `json:"at,omitempty"`
+	// Stale is true when the PR head moved since the rescue attempt --
+	// the attempt no longer describes the current code and the PR is
+	// fair game for another rescue.
+	Stale bool `json:"stale"`
 }
 
 func handleSweep(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -198,8 +239,9 @@ func buildSweepResult(status *pr.PRStatus) SweepResult {
 		},
 	}
 
+	now := time.Now()
 	toEntry := func(e pr.StatusEntry) SweepPREntry {
-		return SweepPREntry{
+		entry := SweepPREntry{
 			Owner:  e.PR.Owner,
 			Repo:   e.PR.Repo,
 			Number: e.PR.Number,
@@ -208,6 +250,22 @@ func buildSweepResult(status *pr.PRStatus) SweepResult {
 			Status: e.State.String(),
 			Detail: e.Detail,
 		}
+		if !e.PR.CreatedAt.IsZero() {
+			entry.CreatedAt = e.PR.CreatedAt.UTC().Format(time.RFC3339)
+			entry.AgeDays = pr.AgeDays(e.PR.CreatedAt, now)
+		}
+		if e.Rescue != nil {
+			entry.Rescue = &SweepRescueInfo{
+				Tool:    e.Rescue.Tool,
+				Outcome: e.Rescue.Outcome,
+				Reason:  e.Rescue.Reason,
+				Stale:   e.Rescue.Stale,
+			}
+			if !e.Rescue.At.IsZero() {
+				entry.Rescue.At = e.Rescue.At.UTC().Format(time.RFC3339)
+			}
+		}
+		return entry
 	}
 
 	for _, e := range status.MergedEntries() {
@@ -234,6 +292,38 @@ func buildSweepResult(status *pr.PRStatus) SweepResult {
 	}
 
 	return result
+}
+
+func handleMark(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	prURL := request.GetString("pr_url", "")
+	outcome := request.GetString("outcome", "failed")
+	reason := request.GetString("reason", "")
+	tool := request.GetString("tool", "ai")
+
+	client, err := gh.NewClient(ctx)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("creating GitHub client: %v", err)), nil
+	}
+
+	marker, owner, repo, number, err := markRescue(ctx, client, prURL, outcome, reason, tool)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+
+	result := map[string]any{
+		"owner":    owner,
+		"repo":     repo,
+		"number":   number,
+		"outcome":  marker.Outcome,
+		"tool":     marker.Tool,
+		"head_sha": marker.HeadSHA,
+		"at":       marker.At.Format(time.RFC3339),
+	}
+	jsonBytes, err := json.Marshal(result)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("marshaling result: %v", err)), nil
+	}
+	return mcp.NewToolResultText(string(jsonBytes)), nil
 }
 
 func createTempReposFile(repos []string) (string, error) {

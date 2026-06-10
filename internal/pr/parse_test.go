@@ -4,6 +4,26 @@ import (
 	"testing"
 )
 
+func TestParsePRURL(t *testing.T) {
+	owner, repo, number, err := ParsePRURL("https://github.com/giantswarm/happa/pull/4808")
+	if err != nil {
+		t.Fatalf("ParsePRURL error: %v", err)
+	}
+	if owner != "giantswarm" || repo != "happa" || number != 4808 {
+		t.Errorf("got %s/%s#%d, want giantswarm/happa#4808", owner, repo, number)
+	}
+
+	for _, bad := range []string{
+		"https://github.com/giantswarm/happa",
+		"https://github.com/giantswarm/happa/issues/42",
+		"https://github.com/giantswarm/happa/pull/abc",
+	} {
+		if _, _, _, err := ParsePRURL(bad); err == nil {
+			t.Errorf("ParsePRURL(%q) expected error, got nil", bad)
+		}
+	}
+}
+
 func TestExtractOwnerRepo(t *testing.T) {
 	tests := []struct {
 		name      string

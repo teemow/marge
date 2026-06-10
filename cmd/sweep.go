@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 	gh "github.com/teemow/marge/internal/github"
@@ -92,9 +93,22 @@ func printSweepFailures(w *os.File, header string, entries []pr.StatusEntry) {
 		return
 	}
 	_, _ = fmt.Fprintf(w, "\n%s (%d):\n\n", header, len(entries))
+	now := time.Now()
 	for _, e := range entries {
-		_, _ = fmt.Fprintf(w, "  #%-6d %s/%s\n", e.PR.Number, e.PR.Owner, e.PR.Repo)
+		repoLine := fmt.Sprintf("  #%-6d %s/%s", e.PR.Number, e.PR.Owner, e.PR.Repo)
+		if age := pr.FormatAge(e.PR.CreatedAt, now); age != "" {
+			ageStr := fmt.Sprintf("(%s old)", age)
+			if code := pr.AgeColorCode(e.PR.CreatedAt, now); code != "" {
+				ageStr = code + ageStr + "\033[0m"
+			}
+			repoLine += "  " + ageStr
+		}
+		_, _ = fmt.Fprintln(w, repoLine)
 		_, _ = fmt.Fprintf(w, "         %s\n", e.PR.Title)
-		_, _ = fmt.Fprintf(w, "         %s  %s\n\n", e.PR.URL, pr.ColorizeStatus(e.State, e.Detail))
+		statusLine := fmt.Sprintf("         %s  %s", e.PR.URL, pr.ColorizeStatus(e.State, e.Detail))
+		if e.Rescue != nil {
+			statusLine += "  " + pr.ColorizeRescue(e.Rescue, now)
+		}
+		_, _ = fmt.Fprintf(w, "%s\n\n", statusLine)
 	}
 }

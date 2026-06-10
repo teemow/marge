@@ -3,15 +3,17 @@ package pr
 import (
 	"fmt"
 	"sort"
+	"time"
 )
 
 type PRInfo struct {
-	Owner  string
-	Repo   string
-	Number int
-	Title  string
-	URL    string
-	Author string
+	Owner     string
+	Repo      string
+	Number    int
+	Title     string
+	URL       string
+	Author    string
+	CreatedAt time.Time
 }
 
 type PRGroup struct {

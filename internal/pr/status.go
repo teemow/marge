@@ -2,6 +2,7 @@ package pr
 
 import (
 	"fmt"
+	"sort"
 	"sync"
 )
 
@@ -68,6 +69,9 @@ type StatusEntry struct {
 	PR     PRInfo
 	State  StatusState
 	Detail string
+	// Rescue is the most recent prior automated rescue attempt found on
+	// the PR, if any. Only populated for failure-state entries.
+	Rescue *RescueMarker
 }
 
 func NewPRStatus() *PRStatus {
@@ -92,6 +96,26 @@ func (s *PRStatus) Update(idx int, state StatusState, detail string) {
 		s.entries[idx].State = state
 		s.entries[idx].Detail = detail
 	}
+}
+
+// SetRescue attaches a prior rescue-attempt marker to an entry.
+func (s *PRStatus) SetRescue(idx int, marker *RescueMarker) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if idx < len(s.entries) {
+		s.entries[idx].Rescue = marker
+	}
+}
+
+// StateAt returns the current state of the entry at idx, or
+// StatusPending when idx is out of range.
+func (s *PRStatus) StateAt(idx int) StatusState {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if idx < len(s.entries) {
+		return s.entries[idx].State
+	}
+	return StatusPending
 }
 
 func (s *PRStatus) Snapshot() []StatusEntry {
@@ -146,6 +170,10 @@ func (s *PRStatus) FormatSummary() string {
 	return fmt.Sprintf("%d PRs processed: %d merged, %d failed, %d skipped", total, merged, failed, skipped)
 }
 
+// ActionRequired returns the failure entries, oldest PR first: the
+// longer a dependency PR has been open, the more sweeps it has already
+// survived, so the old ones are the most likely to need manual work.
+// Entries without a known creation time sort last, in insertion order.
 func (s *PRStatus) ActionRequired() []StatusEntry {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -156,6 +184,13 @@ func (s *PRStatus) ActionRequired() []StatusEntry {
 			result = append(result, e)
 		}
 	}
+	sort.SliceStable(result, func(i, j int) bool {
+		ci, cj := result[i].PR.CreatedAt, result[j].PR.CreatedAt
+		if ci.IsZero() || cj.IsZero() {
+			return !ci.IsZero()
+		}
+		return ci.Before(cj)
+	})
 	return result
 }
 
