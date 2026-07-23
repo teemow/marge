@@ -6,7 +6,7 @@ require (
 	github.com/creativeprojects/go-selfupdate v1.6.0
 	github.com/google/go-github/v89 v89.0.0
 	github.com/manifoldco/promptui v0.9.0
-	github.com/mark3labs/mcp-go v0.56.0
+	github.com/mark3labs/mcp-go v0.57.0
 	github.com/spf13/cobra v1.10.2
 )
 
