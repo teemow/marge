@@ -5,6 +5,7 @@ go 1.25.12
 require (
 	github.com/creativeprojects/go-selfupdate v1.6.0
 	github.com/google/go-github/v89 v89.0.0
+	github.com/google/go-github/v90 v90.0.0
 	github.com/manifoldco/promptui v0.9.0
 	github.com/mark3labs/mcp-go v0.58.0
 	github.com/spf13/cobra v1.10.2
