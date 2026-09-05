@@ -58,7 +58,7 @@ func TestMerge_SuccessOnFirstAttempt(t *testing.T) {
 	mux.HandleFunc("PUT /repos/org/repo/pulls/1/merge", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(github.PullRequestMergeResult{
-			Merged: github.Ptr(true),
+			Merged: new(true),
 		})
 	})
 	server := httptest.NewServer(mux)
@@ -99,14 +99,14 @@ func TestMerge_RetriesOnBaseBranchModified(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(github.PullRequestMergeResult{
-			Merged: github.Ptr(true),
+			Merged: new(true),
 		})
 	})
 	mux.HandleFunc("GET /repos/org/repo/pulls/1", func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(github.PullRequest{
-			Number:         github.Ptr(1),
-			Merged:         github.Ptr(false),
-			MergeableState: github.Ptr("clean"),
+			Number:         new(1),
+			Merged:         new(false),
+			MergeableState: new("clean"),
 		})
 	})
 	server := httptest.NewServer(mux)
@@ -197,9 +197,9 @@ func TestMerge_ExhaustsRetries(t *testing.T) {
 	})
 	mux.HandleFunc("GET /repos/org/repo/pulls/1", func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(github.PullRequest{
-			Number:         github.Ptr(1),
-			Merged:         github.Ptr(false),
-			MergeableState: github.Ptr("clean"),
+			Number:         new(1),
+			Merged:         new(false),
+			MergeableState: new("clean"),
 		})
 	})
 	server := httptest.NewServer(mux)
@@ -254,8 +254,8 @@ func TestMerge_MergedBetweenRetries(t *testing.T) {
 	mux.HandleFunc("GET /repos/org/repo/pulls/1", func(w http.ResponseWriter, r *http.Request) {
 		// PR was merged by someone else between retries
 		_ = json.NewEncoder(w).Encode(github.PullRequest{
-			Number: github.Ptr(1),
-			Merged: github.Ptr(true),
+			Number: new(1),
+			Merged: new(true),
 		})
 	})
 	server := httptest.NewServer(mux)
@@ -314,9 +314,9 @@ func TestMerge_CancelledDuringRetry(t *testing.T) {
 	// cancel races and the wait completes first.
 	mux.HandleFunc("GET /repos/org/repo/pulls/1", func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(github.PullRequest{
-			Number:         github.Ptr(1),
-			Merged:         github.Ptr(false),
-			MergeableState: github.Ptr("clean"),
+			Number:         new(1),
+			Merged:         new(false),
+			MergeableState: new("clean"),
 		})
 	})
 	server := httptest.NewServer(mux)
