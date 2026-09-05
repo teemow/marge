@@ -35,7 +35,12 @@ returning structured JSON results instead of terminal output.`,
 
 		mcpServer.AddTool(
 			mcp.NewTool("sweep",
-				mcp.WithDescription("Sweep dependency update PRs: find, approve, and merge Renovate/Dependabot PRs"),
+				mcp.WithDescription("Sweep dependency update PRs: find, approve, and merge Renovate/Dependabot PRs. "+
+					"Returns structured JSON: summary counts plus merged, security_failures, action_required, stale, refreshed, ci_unavailable and skipped lists. "+
+					"A failing PR whose head is behind its base branch and whose every failing check is green on the base branch head is classified as stale "+
+					"(the failure was fixed on the base branch after the PR's last build) and listed under stale, not action_required; "+
+					"set refresh_stale to update such branches from their base so CI re-runs (they are then listed under refreshed). "+
+					"Rescue tooling should act on action_required only."),
 				mcp.WithString("org",
 					mcp.Description("GitHub organization or user to limit the sweep to"),
 				),
@@ -50,7 +55,10 @@ returning structured JSON results instead of terminal output.`,
 					mcp.Description("Also merge PRs that have auto-merge enabled (default: false)"),
 				),
 				mcp.WithBoolean("dry_run",
-					mcp.Description("Show what would be done without making changes (default: false)"),
+					mcp.Description("Show what would be done without making changes (default: false). Stale PRs are still classified, but not refreshed."),
+				),
+				mcp.WithBoolean("refresh_stale",
+					mcp.Description("Update the branch of stale PRs from their base (same as GitHub's \"Update branch\" button) so CI re-runs, and report them under refreshed (default: false). Skipped for PRs carrying a non-stale ai-rescue marker."),
 				),
 				mcp.WithString("author",
 					mcp.Description("Filter by PR author: \"renovate\", \"dependabot\", or \"all\" (default: \"all\")"),
@@ -97,6 +105,15 @@ type SweepResult struct {
 	Merged           []SweepPREntry `json:"merged,omitempty"`
 	SecurityFailures []SweepPREntry `json:"security_failures,omitempty"`
 	ActionRequired   []SweepPREntry `json:"action_required,omitempty"`
+	// Stale lists failing PRs whose head is behind the base branch and whose
+	// every failing check is green on the base branch head: the failure was
+	// fixed on the base branch after the PR's last build. The remedy is a
+	// branch refresh (refresh_stale), not a rescue, so they are excluded from
+	// action_required.
+	Stale []SweepPREntry `json:"stale,omitempty"`
+	// Refreshed lists stale PRs whose branch was updated from its base in
+	// this run. CI is running again; the next sweep decides what they are.
+	Refreshed []SweepPREntry `json:"refreshed,omitempty"`
 	// CIUnavailable lists PRs whose CI could not run because a GitHub Actions
 	// budget / spending-limit block prevented every job from starting. These
 	// are NOT failures: the remedy is to raise or await the Actions budget,
@@ -119,7 +136,12 @@ type SweepSummary struct {
 	// CIUnavailable counts PRs whose CI could not run because of a GitHub
 	// Actions budget block. It is disjoint from Failed and SecurityFailures.
 	CIUnavailable int `json:"ci_unavailable"`
-	Skipped       int `json:"skipped"`
+	// Stale counts failing PRs whose failure is already fixed on the base
+	// branch (see SweepResult.Stale); Refreshed counts the stale PRs whose
+	// branch was updated in this run. Both are disjoint from Failed.
+	Stale     int `json:"stale"`
+	Refreshed int `json:"refreshed"`
+	Skipped   int `json:"skipped"`
 }
 
 // SweepPREntry represents a single PR in the sweep results.
@@ -158,6 +180,7 @@ func handleSweep(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToo
 	reposFile := request.GetString("repos_file", "")
 	mergeAuto := request.GetBool("merge_auto", false)
 	dryRun := request.GetBool("dry_run", false)
+	refreshStale := request.GetBool("refresh_stale", false)
 	author := request.GetString("author", "all")
 	trustedAuthors := request.GetString("trusted_authors", "renovate[bot],dependabot[bot]")
 	securityPatterns := request.GetString("security_patterns", "")
@@ -201,6 +224,7 @@ func handleSweep(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToo
 	opts := RunOptions{
 		DryRun:           dryRun,
 		MergeAuto:        mergeAuto,
+		RefreshStale:     refreshStale,
 		NoTUI:            true,
 		Author:           author,
 		TrustedAuthors:   trustedAuthors,
@@ -223,7 +247,7 @@ func handleSweep(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToo
 }
 
 func buildSweepResult(status *pr.PRStatus) SweepResult {
-	merged, failed, blocked, skipped := status.Summary()
+	counts := status.Summary()
 	total := status.Len()
 	securityEntries := status.SecurityFailedEntries()
 	blockedEntries := status.BlockedEntries()
@@ -231,11 +255,13 @@ func buildSweepResult(status *pr.PRStatus) SweepResult {
 	result := SweepResult{
 		Summary: SweepSummary{
 			Total:            total,
-			Merged:           merged,
-			Failed:           failed - len(securityEntries),
+			Merged:           counts.Merged,
+			Failed:           counts.Failed - len(securityEntries),
 			SecurityFailures: len(securityEntries),
-			CIUnavailable:    blocked,
-			Skipped:          skipped,
+			CIUnavailable:    counts.Blocked,
+			Stale:            counts.Stale,
+			Refreshed:        counts.Refreshed,
+			Skipped:          counts.Skipped,
 		},
 	}
 
@@ -278,6 +304,14 @@ func buildSweepResult(status *pr.PRStatus) SweepResult {
 
 	for _, e := range blockedEntries {
 		result.CIUnavailable = append(result.CIUnavailable, toEntry(e))
+	}
+
+	for _, e := range status.StaleEntries() {
+		result.Stale = append(result.Stale, toEntry(e))
+	}
+
+	for _, e := range status.RefreshedEntries() {
+		result.Refreshed = append(result.Refreshed, toEntry(e))
 	}
 
 	for _, e := range status.ActionRequired() {

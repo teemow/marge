@@ -24,6 +24,7 @@ func init() {
 	sweepCmd.Flags().StringVar(&sweepOpts.ReposFile, "repos-file", "", "File with org/repo entries (one per line) to also scan for bot PRs")
 	sweepCmd.Flags().BoolVar(&sweepOpts.NoTUI, "no-tui", false, "Disable live table, print plain-text results instead")
 	sweepCmd.Flags().BoolVar(&sweepOpts.MergeAuto, "merge-auto", false, "Also merge PRs that have auto-merge enabled")
+	sweepCmd.Flags().BoolVar(&sweepOpts.RefreshStale, "refresh-stale", false, "Update the branch of stale PRs (behind base, failing checks green on base) so CI re-runs")
 	sweepCmd.Flags().StringVar(&sweepOpts.TrustedAuthors, "trusted-authors", "renovate[bot],dependabot[bot]", "Comma-separated list of trusted PR author logins")
 	sweepCmd.Flags().StringVar(&sweepOpts.SecurityPatterns, "security-patterns", "", "Comma-separated list of case-insensitive substrings used to flag failing CI checks as security-related (defaults to a built-in list)")
 
@@ -35,7 +36,14 @@ var sweepCmd = &cobra.Command{
 	Short: "Merge all dependency update PRs, report failures",
 	Long: `Automatically attempt to merge every open Renovate and Dependabot PR
 that requests your review. After processing, a summary lists the PRs
-that could not be merged so you can fix them manually.`,
+that could not be merged so you can fix them manually.
+
+A failing PR whose head is behind its base branch and whose every failing
+check is green on the base branch head is reported as "Stale" instead of
+"Failed": the failure was most likely fixed on the base branch after the
+PR's last build. With --refresh-stale, marge updates such branches from
+their base (the "Update branch" button) so CI re-runs, and reports them as
+"Refreshed"; PRs carrying a fresh ai-rescue marker are left alone.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -74,6 +82,8 @@ that could not be merged so you can fix them manually.`,
 					security, other := pr.SplitActionRequired(status.ActionRequired())
 					printSweepFailures(os.Stderr, "Security failures", security)
 					printSweepFailures(os.Stderr, "Action required", other)
+					printSweepFailures(os.Stderr, pr.StaleGroupHeader, status.StaleEntries())
+					printSweepFailures(os.Stderr, pr.RefreshedGroupHeader, status.RefreshedEntries())
 					printSweepFailures(os.Stderr, "CI unavailable (Actions budget)", status.BlockedEntries())
 				}
 			}

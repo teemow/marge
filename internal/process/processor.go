@@ -43,6 +43,13 @@ type Processor struct {
 	// MergeRetryWait is the base wait duration between merge retries.
 	// Zero uses the default (10s). Actual wait = base * attempt number.
 	MergeRetryWait time.Duration
+
+	// RefreshStale updates the branch of every stale PR from its base
+	// (see classifyStale) so CI re-runs against current code. Without it a
+	// stale PR is only reported as such. Ignored in dry-run mode.
+	RefreshStale bool
+
+	staleCache
 }
 
 func NewProcessor(client *github.Client, dryRun bool, mergeAutoMerge bool, login string, trustedAuthors map[string]bool) *Processor {
@@ -96,7 +103,7 @@ func (p *Processor) ProcessPR(ctx context.Context, info pr.PRInfo, status *pr.PR
 	}
 
 	status.Update(idx, pr.StatusChecking, "")
-	if err := p.waitForChecks(ctx, info, status, idx); err != nil {
+	if err := p.waitForChecks(ctx, info, pullReq, status, idx); err != nil {
 		return
 	}
 
@@ -121,7 +128,7 @@ func (p *Processor) ProcessPR(ctx context.Context, info pr.PRInfo, status *pr.PR
 	p.merge(ctx, info, status, idx)
 }
 
-func (p *Processor) waitForChecks(ctx context.Context, info pr.PRInfo, status *pr.PRStatus, idx int) error {
+func (p *Processor) waitForChecks(ctx context.Context, info pr.PRInfo, pullReq *github.PullRequest, status *pr.PRStatus, idx int) error {
 	deadline := time.After(checkPollTimeout)
 	for {
 		outcome, err := p.getCombinedCheckState(ctx, info)
@@ -141,6 +148,14 @@ func (p *Processor) waitForChecks(ctx context.Context, info pr.PRInfo, status *p
 			status.Update(idx, pr.StatusBlockedCI, blockedDetail(outcome.blockedChecks))
 			return fmt.Errorf("ci unavailable: actions budget")
 		case "failure", "error":
+			// A failure that is already fixed on the base branch is stale,
+			// not real: the branch is behind and every failing check is
+			// green on the base head. Decided before the security split so
+			// a stale govulncheck/Trivy failure is refreshed like any other.
+			if stale := p.classifyStale(ctx, info, pullReq, outcome.failedChecks); stale != nil {
+				p.handleStale(ctx, info, pullReq, stale, status, idx)
+				return fmt.Errorf("checks stale")
+			}
 			if name := classifySecurityFailure(outcome.failedChecks, p.securityPatterns()); name != "" {
 				status.Update(idx, pr.StatusFailedSecurity, fmt.Sprintf("security check failed: %s", name))
 			} else {
@@ -285,16 +300,34 @@ func (p *Processor) isBudgetBlockedCheckRun(ctx context.Context, info pr.PRInfo,
 
 // attachRescueMarker looks for the newest ai-rescue marker in the PR's
 // comments and attaches it to the status entry. It only runs for failure
-// outcomes (the marker is operator triage signal: "an automated rescue
-// was already attempted here"), and it degrades silently on API errors --
-// a comment-listing failure must never change a sweep result.
+// and stale outcomes (the marker is operator triage signal: "an automated
+// rescue was already attempted here"), skips entries that already carry a
+// marker (the stale-refresh path looks it up first), and degrades silently
+// on API errors -- a comment-listing failure must never change a sweep
+// result.
 func (p *Processor) attachRescueMarker(ctx context.Context, info pr.PRInfo, headSHA string, status *pr.PRStatus, idx int) {
 	switch status.StateAt(idx) {
-	case pr.StatusFailed, pr.StatusFailedSecurity, pr.StatusConflict:
+	case pr.StatusFailed, pr.StatusFailedSecurity, pr.StatusConflict, pr.StatusStale, pr.StatusRefreshed:
 	default:
 		return
 	}
+	if status.RescueAt(idx) != nil {
+		return
+	}
 
+	marker := p.findRescueMarker(ctx, info)
+	if marker == nil {
+		return
+	}
+	marker.MarkStale(headSHA)
+	status.SetRescue(idx, marker)
+}
+
+// findRescueMarker returns the newest ai-rescue marker among the PR's
+// comments, or nil when there is none or the comments cannot be listed.
+// Staleness is left to the caller (MarkStale against the head SHA it
+// cares about).
+func (p *Processor) findRescueMarker(ctx context.Context, info pr.PRInfo) *pr.RescueMarker {
 	opts := &github.IssueListCommentsOptions{
 		ListOptions: github.ListOptions{PerPage: 100},
 	}
@@ -302,7 +335,7 @@ func (p *Processor) attachRescueMarker(ctx context.Context, info pr.PRInfo, head
 	for {
 		comments, resp, err := p.Client.Issues.ListComments(ctx, info.Owner, info.Repo, info.Number, opts)
 		if err != nil {
-			return
+			return nil
 		}
 		// Comments are returned oldest-first; the last marker found wins.
 		for _, c := range comments {
@@ -315,12 +348,7 @@ func (p *Processor) attachRescueMarker(ctx context.Context, info pr.PRInfo, head
 		}
 		opts.Page = resp.NextPage
 	}
-
-	if marker == nil {
-		return
-	}
-	marker.MarkStale(headSHA)
-	status.SetRescue(idx, marker)
+	return marker
 }
 
 // securityPatterns returns the normalized security-check pattern list to

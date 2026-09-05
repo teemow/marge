@@ -56,6 +56,7 @@ export GITHUB_TOKEN="ghp_..."
 | Checks | Read | Wait for CI status |
 | Commit statuses | Read | Read combined commit status |
 | Metadata | Read | Required by default |
+| Contents | Read & write | Only with `--refresh-stale`: update a stale PR branch from its base |
 
 ## Usage
 
@@ -73,6 +74,7 @@ When run with a query (e.g. a repo name or dependency), it filters PRs directly 
 | `--author` | | `all` | Filter by PR author: `renovate`, `dependabot`, or `all` |
 | `--org` | | | Limit to repos owned by this org or user |
 | `--no-tui` | | `false` | Disable the live table; print plain-text results instead |
+| `--refresh-stale` | | `false` | Update the branch of stale PRs from their base so CI re-runs (see [Stale failures](#stale-failures-already-fixed-on-the-base-branch)) |
 | `--trusted-authors` | | `renovate[bot],dependabot[bot]` | Comma-separated list of trusted PR author logins |
 | `--security-patterns` | | _(built-in)_ | Override the built-in security check pattern list (see below) |
 
@@ -95,6 +97,27 @@ Verified against the live GitHub API, such a block shows up as a check run with 
 When **every** failing check on a PR is such a block, marge classifies the PR as `CI unavailable (budget)` rather than `Failed`. It is counted separately, surfaced under its own section, and kept out of any rescue path -- the fix is to raise or await the Actions budget, not to touch the code. If a PR has a mix of a genuine failure and a budget block, it is still reported as `Failed`.
 
 > Only this API-verified message is matched; any unrecognized block degrades to the normal `Failed` path rather than risking a real failure being hidden.
+
+#### Stale failures (already fixed on the base branch)
+
+A dependency PR is built once and then sits in the queue while the base branch moves on. When a fleet-wide fix lands on `main` -- a CVE bump that turned every open Go PR's vulnerability scan red, a linter pin, a CI infra repair -- the PR's last build stays red although the failure no longer exists. Without help, an operator (or a rescue agent) spends time diagnosing a failure that a branch refresh would have cleared.
+
+marge recognises this case. When a PR's checks fail, it:
+
+1. compares the PR head with its base branch (`GET /repos/{owner}/{repo}/compare/{base}...{head}`) and continues only if the head is **behind** (`behind_by > 0`);
+2. looks up the latest run of **every failing check** on the base branch head (commit statuses and check runs);
+3. classifies the PR as **`Stale`** instead of `Failed` when all of them are green there, e.g. `Stale (go-build green on main since 2026-09-05 10:57 UTC, 12 behind)`.
+
+A PR that is behind but whose failing check is also red on the base branch stays `Failed` -- the failure is real on `main` too. So does a PR whose failing check does not exist on the base branch at all (a PR-only workflow cannot be proven green), and a PR that is not behind. Any lookup error keeps the `Failed` classification; a stale verdict is only ever reached on positive evidence. The check runs before the security split, so a stale govulncheck or Trivy failure is recognised like any other.
+
+Stale PRs are listed in their own **Stale** section, counted separately from failures, and kept out of the action-required list -- the remedy is a refresh, not a rescue. With **`--refresh-stale`** (MCP: `refresh_stale: true`) marge performs that refresh itself: it calls `PUT /repos/{owner}/{repo}/pulls/{number}/update-branch` (the same merge commit as GitHub's "Update branch" button) and reports the PR as **`Refreshed (re-checking; ...)`**. CI re-runs against current code and the next sweep merges the PR if it is green -- or reports it as `Failed`, because it is no longer behind.
+
+Two guards apply to the refresh:
+
+- `--dry-run` prints the `Stale` classification but never calls update-branch.
+- A PR carrying a **non-stale [rescue marker](#rescue-markers-prior-ai-rescue-attempts)** is not refreshed (`Stale (...; refresh skipped: fresh rescue marker)`). The marker pins the head SHA an automated rescue already failed on; refreshing would age it out and make the PR look rescuable again. The marker is shown on the entry so the operator can decide. A stale marker (the branch already moved since the attempt) does not block the refresh.
+
+The heuristic is deliberately cheap: `main` being green does not prove the bump itself is innocent (a major bump can be red for its own reasons while `main` is fine). The cost of a wrong `Stale` verdict is one branch refresh and one CI run, after which the PR is no longer behind and is classified on its own merits.
 
 #### PR age highlighting
 
@@ -121,7 +144,7 @@ Use [`marge mark`](#marge-mark-pr-url-flags) to write markers without knowing th
 
 ### `marge sweep [flags]`
 
-Processes all matching PRs without interactive grouping. After processing, prints a **Security failures** section, an **Action required** section listing any PRs that failed, have conflicts, or came from untrusted authors, and a **CI unavailable (Actions budget)** section for PRs whose checks never ran because an Actions spending limit was exhausted. Security failures (e.g. govulncheck, Trivy, CodeQL) are separated so they are not mistaken for ordinary CI flakiness, and budget-blocked PRs are separated so they are not mistaken for genuine failures (see [CI unavailable (Actions budget)](#ci-unavailable-actions-budget)).
+Processes all matching PRs without interactive grouping. After processing, prints a **Security failures** section, an **Action required** section listing any PRs that failed, have conflicts, or came from untrusted authors, a **Stale** section for PRs whose failing checks are already green on their base branch (and a **Refreshed** section once `--refresh-stale` has updated them), and a **CI unavailable (Actions budget)** section for PRs whose checks never ran because an Actions spending limit was exhausted. Security failures (e.g. govulncheck, Trivy, CodeQL) are separated so they are not mistaken for ordinary CI flakiness; stale and budget-blocked PRs are separated so they are not mistaken for genuine failures (see [Stale failures](#stale-failures-already-fixed-on-the-base-branch) and [CI unavailable (Actions budget)](#ci-unavailable-actions-budget)).
 
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
@@ -131,6 +154,7 @@ Processes all matching PRs without interactive grouping. After processing, print
 | `--org` | | | Limit to repos owned by this org or user |
 | `--no-tui` | | `false` | Disable the live table; print plain-text results instead |
 | `--merge-auto` | | `false` | Also merge PRs that have auto-merge enabled (by default these are skipped) |
+| `--refresh-stale` | | `false` | Update the branch of stale PRs from their base so CI re-runs (see [Stale failures](#stale-failures-already-fixed-on-the-base-branch)) |
 | `--trusted-authors` | | `renovate[bot],dependabot[bot]` | Comma-separated list of trusted PR author logins |
 | `--security-patterns` | | _(built-in)_ | Override the built-in security check pattern list (see [Security check patterns](#security-check-patterns)) |
 
@@ -155,7 +179,7 @@ Requires the token to have **Issues: Read & write** (comment) permission in addi
 
 Starts a stdio MCP server exposing two tools:
 
-- **`sweep`** -- mirrors `marge sweep`, returning structured JSON (`summary`, `merged`, `security_failures`, `action_required`, `ci_unavailable`, `skipped`). Each PR entry includes `created_at`, `age_days`, and -- when a prior rescue attempt was found -- a `rescue` object (`tool`, `outcome`, `reason`, `at`, `stale`). Agent orchestrators should skip `action_required` entries whose rescue is `failed` and not `stale`, and escalate those to a human.
+- **`sweep`** -- mirrors `marge sweep`, returning structured JSON (`summary`, `merged`, `security_failures`, `action_required`, `stale`, `refreshed`, `ci_unavailable`, `skipped`). Each PR entry includes `created_at`, `age_days`, and -- when a prior rescue attempt was found -- a `rescue` object (`tool`, `outcome`, `reason`, `at`, `stale`). Pass `refresh_stale: true` to update stale branches from their base (they then appear under `refreshed`); `dry_run: true` still classifies them under `stale`. Agent orchestrators should dispatch on `action_required` only, skip entries whose rescue is `failed` and not `stale`, and escalate those to a human.
 - **`mark`** -- mirrors `marge mark`, so rescue agents can record their own failed attempts.
 
 ### Other commands
@@ -209,6 +233,12 @@ Sweep including PRs with auto-merge enabled:
 marge sweep --merge-auto
 ```
 
+Sweep and refresh stale PRs (behind their base, failing checks already green there) so CI re-runs:
+
+```bash
+marge sweep --refresh-stale
+```
+
 ## How it works
 
 1. Searches GitHub for open PRs authored by `app/renovate` or `app/dependabot` that are either requesting your review or in your own repositories. Self-authored dependency-update PRs (e.g. from self-hosted Renovate) in your repos are also included.
@@ -216,6 +246,7 @@ marge sweep --merge-auto
 3. Validates each PR's author against a trusted allow-list (`renovate[bot]`, `dependabot[bot]`, and the authenticated user by default). PRs from untrusted authors are refused with a clear status message. You can extend the allow-list with `--trusted-authors`.
 4. For each selected PR, processes it in parallel (up to 5 concurrent):
    - Checks combined commit status and check runs; polls every 15 seconds for up to 5 minutes if pending.
+   - On failure, checks whether the PR is behind its base branch with every failing check green on the base head; if so it is `Stale`, not `Failed`, and `--refresh-stale` updates the branch so CI re-runs.
    - Approves the PR if not already approved.
    - If auto-merge is enabled, lets the merge queue handle it (unless `--merge-auto` is set).
    - Otherwise merges via squash.
