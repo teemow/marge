@@ -85,3 +85,36 @@ func TestBuildSweepResult_ciUnavailableIsSeparate(t *testing.T) {
 		}
 	}
 }
+
+// TestBuildSweepResult_staleAndRefreshedAreSeparate guards that a stale
+// failure (fixed on the base branch already) and a refreshed branch are
+// reported under their own keys and excluded from failed/action_required,
+// so rescue tooling never dispatches an agent for a branch that only
+// needs a refresh.
+func TestBuildSweepResult_staleAndRefreshedAreSeparate(t *testing.T) {
+	status := pr.NewPRStatus()
+	idx1 := status.Add(pr.PRInfo{Owner: "o", Repo: "r", Number: 1})
+	status.Update(idx1, pr.StatusFailed, "checks failed: build")
+	idx2 := status.Add(pr.PRInfo{Owner: "o", Repo: "r", Number: 2})
+	status.Update(idx2, pr.StatusStale, "go-build green on main since 2026-09-05 10:57 UTC, 5 behind")
+	idx3 := status.Add(pr.PRInfo{Owner: "o", Repo: "r", Number: 3})
+	status.Update(idx3, pr.StatusRefreshed, "re-checking; go-build green on main since 2026-09-05 10:57 UTC, 5 behind")
+
+	got := buildSweepResult(status)
+
+	if got.Summary.Failed != 1 {
+		t.Errorf("Failed = %d, want 1 (stale/refreshed must be excluded)", got.Summary.Failed)
+	}
+	if got.Summary.Stale != 1 || got.Summary.Refreshed != 1 {
+		t.Errorf("Stale = %d, Refreshed = %d, want 1 and 1", got.Summary.Stale, got.Summary.Refreshed)
+	}
+	if len(got.Stale) != 1 || got.Stale[0].Number != 2 || got.Stale[0].Status != "Stale" {
+		t.Errorf("Stale = %+v, want only #2 with status Stale", got.Stale)
+	}
+	if len(got.Refreshed) != 1 || got.Refreshed[0].Number != 3 || got.Refreshed[0].Status != "Refreshed" {
+		t.Errorf("Refreshed = %+v, want only #3 with status Refreshed", got.Refreshed)
+	}
+	if len(got.ActionRequired) != 1 || got.ActionRequired[0].Number != 1 {
+		t.Errorf("ActionRequired = %+v, want only #1", got.ActionRequired)
+	}
+}

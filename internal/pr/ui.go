@@ -171,10 +171,13 @@ func ColorizeStatus(state StatusState, detail string) string {
 		// Magenta so a billing/budget block reads as "not a code failure",
 		// distinct from the red used for genuine failures.
 		return fmt.Sprintf("\033[35m%s\033[0m", label)
-	case StatusSkipped:
-		return fmt.Sprintf("\033[33m%s\033[0m", label) // yellow
-	case StatusChecking, StatusApproving, StatusMerging:
-		return fmt.Sprintf("\033[36m%s\033[0m", label) // cyan
+	case StatusSkipped, StatusStale:
+		// Yellow: not a real failure, but somebody has to act (a stale
+		// branch wants a refresh, the same color as a stale rescue marker).
+		return fmt.Sprintf("\033[33m%s\033[0m", label)
+	case StatusChecking, StatusApproving, StatusMerging, StatusRefreshed:
+		// Cyan: work in progress -- a refreshed branch is re-running CI.
+		return fmt.Sprintf("\033[36m%s\033[0m", label)
 	default:
 		return label
 	}
@@ -196,6 +199,8 @@ func PrintPlainResults(w *os.File, status *PRStatus) {
 
 	printFailureGroup(w, "Security failures", securityFailed)
 	printFailureGroup(w, "Failed", otherFailed)
+	printFailureGroup(w, StaleGroupHeader, status.StaleEntries())
+	printFailureGroup(w, RefreshedGroupHeader, status.RefreshedEntries())
 	printFailureGroup(w, "CI unavailable (Actions budget)", blocked)
 
 	if len(skipped) > 0 {
@@ -206,6 +211,13 @@ func PrintPlainResults(w *os.File, status *PRStatus) {
 		_, _ = fmt.Fprintln(w)
 	}
 }
+
+// Section headers shared by the plain-text and TUI summaries for the two
+// stale-failure buckets, so both outputs name them identically.
+const (
+	StaleGroupHeader     = "Stale (behind base, failing checks green there -- refresh first)"
+	RefreshedGroupHeader = "Refreshed (re-checking)"
+)
 
 // printFailureGroup writes a header and one entry per failure including its
 // PR URL on a continuation line. It is a no-op when entries is empty.

@@ -16,12 +16,12 @@ func TestStatus_securityFailureCountedAsFailed(t *testing.T) {
 	idx := s.Add(PRInfo{Owner: "o", Repo: "r", Number: 1})
 	s.Update(idx, StatusFailedSecurity, "security check failed: govulncheck")
 
-	merged, failed, blocked, skipped := s.Summary()
-	if failed != 1 {
-		t.Errorf("Summary failed = %d, want 1", failed)
+	c := s.Summary()
+	if c.Failed != 1 {
+		t.Errorf("Summary failed = %d, want 1", c.Failed)
 	}
-	if merged != 0 || blocked != 0 || skipped != 0 {
-		t.Errorf("Summary merged=%d blocked=%d skipped=%d, want zero", merged, blocked, skipped)
+	if c.Merged != 0 || c.Blocked != 0 || c.Skipped != 0 {
+		t.Errorf("Summary merged=%d blocked=%d skipped=%d, want zero", c.Merged, c.Blocked, c.Skipped)
 	}
 }
 
@@ -55,15 +55,15 @@ func TestStatus_blockedNotCountedAsFailed(t *testing.T) {
 	idx := s.Add(PRInfo{Owner: "o", Repo: "r", Number: 1})
 	s.Update(idx, StatusBlockedCI, "Actions budget exhausted; no jobs ran")
 
-	merged, failed, blocked, skipped := s.Summary()
-	if blocked != 1 {
-		t.Errorf("Summary blocked = %d, want 1", blocked)
+	c := s.Summary()
+	if c.Blocked != 1 {
+		t.Errorf("Summary blocked = %d, want 1", c.Blocked)
 	}
-	if failed != 0 {
-		t.Errorf("Summary failed = %d, want 0 (budget block must not count as failed)", failed)
+	if c.Failed != 0 {
+		t.Errorf("Summary failed = %d, want 0 (budget block must not count as failed)", c.Failed)
 	}
-	if merged != 0 || skipped != 0 {
-		t.Errorf("Summary merged=%d skipped=%d, want zero", merged, skipped)
+	if c.Merged != 0 || c.Skipped != 0 {
+		t.Errorf("Summary merged=%d skipped=%d, want zero", c.Merged, c.Skipped)
 	}
 }
 
@@ -117,5 +117,69 @@ func TestColorizeStatus_securityIsDistinct(t *testing.T) {
 	}
 	if !strings.Contains(security, "security") {
 		t.Errorf("security colorize output %q should contain the word 'security'", security)
+	}
+}
+
+func TestStatusStale_strings(t *testing.T) {
+	if got := StatusStale.String(); got != "Stale" {
+		t.Errorf("StatusStale.String() = %q, want %q", got, "Stale")
+	}
+	if got := StatusRefreshed.String(); got != "Refreshed" {
+		t.Errorf("StatusRefreshed.String() = %q, want %q", got, "Refreshed")
+	}
+}
+
+func TestStatus_staleAndRefreshedAreNotFailures(t *testing.T) {
+	s := NewPRStatus()
+	i1 := s.Add(PRInfo{Owner: "o", Repo: "r", Number: 1})
+	s.Update(i1, StatusStale, "go-build green on main since 2026-09-05 10:57 UTC, 3 behind")
+	i2 := s.Add(PRInfo{Owner: "o", Repo: "r", Number: 2})
+	s.Update(i2, StatusRefreshed, "re-checking; go-build green on main")
+	i3 := s.Add(PRInfo{Owner: "o", Repo: "r", Number: 3})
+	s.Update(i3, StatusFailed, "checks failed: go-build")
+
+	c := s.Summary()
+	if c.Failed != 1 || c.Stale != 1 || c.Refreshed != 1 {
+		t.Errorf("Summary = %+v, want failed=1 stale=1 refreshed=1", c)
+	}
+	if ar := s.ActionRequired(); len(ar) != 1 || ar[0].PR.Number != 3 {
+		t.Errorf("ActionRequired = %+v, want only #3 (stale/refreshed stay out of the rescue path)", ar)
+	}
+	if st := s.StaleEntries(); len(st) != 1 || st[0].PR.Number != 1 {
+		t.Errorf("StaleEntries = %+v, want only #1", st)
+	}
+	if rf := s.RefreshedEntries(); len(rf) != 1 || rf[0].PR.Number != 2 {
+		t.Errorf("RefreshedEntries = %+v, want only #2", rf)
+	}
+	summary := s.FormatSummary()
+	for _, want := range []string{"1 failed", "1 stale", "1 refreshed"} {
+		if !strings.Contains(summary, want) {
+			t.Errorf("FormatSummary() = %q, want it to contain %q", summary, want)
+		}
+	}
+}
+
+func TestStatus_rescueAt(t *testing.T) {
+	s := NewPRStatus()
+	idx := s.Add(PRInfo{Owner: "o", Repo: "r", Number: 1})
+	if s.RescueAt(idx) != nil {
+		t.Fatal("RescueAt should be nil before SetRescue")
+	}
+	m := &RescueMarker{Outcome: "failed"}
+	s.SetRescue(idx, m)
+	if s.RescueAt(idx) != m {
+		t.Error("RescueAt should return the attached marker")
+	}
+	if s.RescueAt(99) != nil {
+		t.Error("RescueAt out of range should be nil")
+	}
+}
+
+func TestColorizeStatus_staleAndRefreshedAreNotRed(t *testing.T) {
+	failed := ColorizeStatus(StatusFailed, "x")
+	stale := ColorizeStatus(StatusStale, "x")
+	refreshed := ColorizeStatus(StatusRefreshed, "x")
+	if stale == failed || refreshed == failed {
+		t.Error("stale and refreshed must not render in the failure color")
 	}
 }

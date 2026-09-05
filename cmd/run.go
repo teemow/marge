@@ -27,6 +27,7 @@ func init() {
 	runCmd.Flags().StringVar(&runOpts.ReposFile, "repos-file", "", "File with org/repo entries (one per line) to also scan for bot PRs")
 	runCmd.Flags().BoolVar(&runOpts.NoTUI, "no-tui", false, "Disable live table, print plain-text results instead")
 	runCmd.Flags().BoolVar(&runOpts.MergeAuto, "merge-auto", false, "Also merge PRs that have auto-merge enabled")
+	runCmd.Flags().BoolVar(&runOpts.RefreshStale, "refresh-stale", false, "Update the branch of stale PRs (behind base, failing checks green on base) so CI re-runs")
 	runCmd.Flags().StringVar(&runOpts.TrustedAuthors, "trusted-authors", "renovate[bot],dependabot[bot]", "Comma-separated list of trusted PR author logins")
 	runCmd.Flags().StringVar(&runOpts.SecurityPatterns, "security-patterns", "", "Comma-separated list of case-insensitive substrings used to flag failing CI checks as security-related (defaults to a built-in list)")
 

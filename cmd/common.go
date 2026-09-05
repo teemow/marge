@@ -22,6 +22,7 @@ type RunOptions struct {
 	Author           string
 	TrustedAuthors   string
 	MergeAuto        bool
+	RefreshStale     bool
 	Org              string
 	ReposFile        string
 	Grouping         string
@@ -93,6 +94,7 @@ func processOnceWithStatus(ctx context.Context, client *github.Client, login str
 
 	proc := process.NewProcessor(client, opts.DryRun, opts.MergeAuto, login, parseTrustedAuthors(opts.TrustedAuthors))
 	proc.SecurityCheckPatterns = parseCSVList(opts.SecurityPatterns)
+	proc.RefreshStale = opts.RefreshStale
 
 	// Build a per-repo index so we can look up each PR's status table index.
 	indexByPR := make(map[string]int, len(prs))
