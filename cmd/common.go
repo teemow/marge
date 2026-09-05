@@ -16,9 +16,18 @@ import (
 
 // RunOptions holds the configuration shared between the run and sweep commands.
 type RunOptions struct {
-	DryRun           bool
-	Watch            bool
-	NoTUI            bool
+	DryRun bool
+	Watch  bool
+	// NoTUI disables the live table and prints plain-text results to
+	// stdout once processing finishes.
+	NoTUI bool
+	// Quiet suppresses every human-readable line: the live table and the
+	// plain-text results on stdout as well as the progress and summary
+	// lines on stderr. The caller reads the outcome from the returned
+	// PRStatus instead. `marge serve` sets it because stdout is the MCP
+	// stdio transport there and must carry nothing but JSON-RPC. Quiet
+	// implies NoTUI.
+	Quiet            bool
 	Author           string
 	TrustedAuthors   string
 	MergeAuto        bool
@@ -33,11 +42,15 @@ type RunOptions struct {
 
 func processOnceWithStatus(ctx context.Context, client *github.Client, login string, prs []pr.PRInfo, opts RunOptions) (*pr.PRStatus, error) {
 	if len(prs) == 0 {
-		fmt.Fprintln(os.Stderr, "No matching PRs found.")
+		if !opts.Quiet {
+			fmt.Fprintln(os.Stderr, "No matching PRs found.")
+		}
 		return pr.NewPRStatus(), nil
 	}
 
-	fmt.Fprintf(os.Stderr, "Processing %d PR(s)...\n\n", len(prs))
+	if !opts.Quiet {
+		fmt.Fprintf(os.Stderr, "Processing %d PR(s)...\n\n", len(prs))
+	}
 
 	sort.Slice(prs, func(i, j int) bool {
 		ri := prs[i].Owner + "/" + prs[i].Repo
@@ -60,7 +73,9 @@ func processOnceWithStatus(ctx context.Context, client *github.Client, login str
 	}
 	pr.AdjustColumnWidths(cols, prs)
 
-	if !opts.NoTUI {
+	tui := !opts.NoTUI && !opts.Quiet
+
+	if tui {
 		pr.DisableLineWrap(os.Stdout)
 		defer pr.EnableLineWrap(os.Stdout)
 
@@ -72,7 +87,7 @@ func processOnceWithStatus(ctx context.Context, client *github.Client, login str
 
 	stopRefresh := make(chan struct{})
 	refreshStopped := make(chan struct{})
-	if !opts.NoTUI {
+	if tui {
 		go func() {
 			defer close(refreshStopped)
 			ticker := time.NewTicker(500 * time.Millisecond)
@@ -130,9 +145,12 @@ func processOnceWithStatus(ctx context.Context, client *github.Client, login str
 	close(stopRefresh)
 	<-refreshStopped
 
-	if opts.NoTUI {
+	switch {
+	case opts.Quiet:
+		// Nothing is printed; the caller consumes the returned status.
+	case opts.NoTUI:
 		pr.PrintPlainResults(os.Stdout, status)
-	} else {
+	default:
 		pr.UpdateTable(os.Stdout, status.Snapshot(), cols)
 		// Restore wrapping before any post-table prose so long lines
 		// (e.g. failure URLs in the summary) are not clipped by the
@@ -140,7 +158,9 @@ func processOnceWithStatus(ctx context.Context, client *github.Client, login str
 		pr.EnableLineWrap(os.Stdout)
 	}
 
-	fmt.Fprintf(os.Stderr, "\n%s\n", status.FormatSummary())
+	if !opts.Quiet {
+		fmt.Fprintf(os.Stderr, "\n%s\n", status.FormatSummary())
+	}
 
 	if opts.OnComplete != nil {
 		opts.OnComplete(status)

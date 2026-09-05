@@ -221,11 +221,14 @@ func handleSweep(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToo
 		prs = filtered
 	}
 
+	// Quiet: stdout is the MCP stdio transport, so no table, plain-text
+	// results or progress chatter may be written; the JSON result below
+	// carries the same data.
 	opts := RunOptions{
 		DryRun:           dryRun,
 		MergeAuto:        mergeAuto,
 		RefreshStale:     refreshStale,
-		NoTUI:            true,
+		Quiet:            true,
 		Author:           author,
 		TrustedAuthors:   trustedAuthors,
 		SecurityPatterns: securityPatterns,
