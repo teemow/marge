@@ -8,7 +8,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/google/go-github/v90/github"
+	"github.com/google/go-github/v91/github"
 	"github.com/spf13/cobra"
 	gh "github.com/teemow/marge/internal/github"
 	"github.com/teemow/marge/internal/pr"
@@ -97,7 +97,7 @@ func markRescue(ctx context.Context, client *github.Client, prURL, outcome, reas
 	}
 
 	body := marker.CommentBody()
-	_, _, err = client.Issues.CreateComment(ctx, owner, repo, number, &github.IssueComment{Body: &body})
+	_, _, err = client.Issues.CreateComment(ctx, owner, repo, number, github.IssueCommentRequest{Body: body})
 	if err != nil {
 		return nil, "", "", 0, fmt.Errorf("posting marker comment: %w", err)
 	}
